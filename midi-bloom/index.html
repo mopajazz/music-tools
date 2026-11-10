@@ -1,0 +1,1447 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MIDI Bloom: Descent</title>
+<style>
+  :root { --bg:#04040a; --fg:#e8e9f5; --dim:#b6b9d2; --accent:#7fd4ff; --err:#ff9a9a; color-scheme:dark; }
+  * { box-sizing:border-box; }
+  html,body { margin:0; height:100%; background:var(--bg); color:var(--fg);
+    font:13px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace; overflow:hidden; }
+  canvas { position:fixed; inset:0; width:100%; height:100%; display:block; }
+  #ui { touch-action:none; }
+  body.idle #ui { cursor:none; }
+  #hud { position:fixed; top:16px; left:16px; width:min(306px, calc(100vw - 32px)); max-height:calc(100% - 32px); overflow:auto; padding:14px 16px;
+    background:rgba(8,8,18,.88); border:1px solid rgba(255,255,255,.12); border-radius:12px;
+    transition:opacity .2s cubic-bezier(.22,1,.36,1), visibility 0s; }
+  #hud.hidden { opacity:0; visibility:hidden; transition:opacity .2s cubic-bezier(.22,1,.36,1), visibility 0s .2s; }
+  .top { display:flex; align-items:center; justify-content:space-between; gap:8px; margin-bottom:10px; }
+  .top div { display:flex; gap:5px; }
+  h1 { margin:0; font-size:14px; letter-spacing:.14em; text-transform:uppercase; }
+  #status { color:var(--dim); font-size:12px; }
+  #status:empty { display:none; }
+  #status.err { color:var(--err); }
+  .dev { display:flex; align-items:center; gap:8px; font-size:12px; }
+  .dot { width:8px; height:8px; border-radius:50%; background:#555; flex:none; transition:background .1s, box-shadow .1s; }
+  .dot.on { background:var(--accent); box-shadow:0 0 10px var(--accent); }
+  .dev span:last-child { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  button { font:inherit; font-size:12px; color:var(--fg); background:rgba(255,255,255,.07); border:1px solid rgba(255,255,255,.18);
+    border-radius:8px; padding:6px 8px; min-height:32px; cursor:pointer; transition:background .12s; }
+  button:hover { background:rgba(255,255,255,.14); }
+  button.active { background:var(--accent); color:#04141c; border-color:var(--accent); }
+  :focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  .top button { min-height:26px; padding:2px 8px; }
+  #chips { display:grid; grid-template-columns:repeat(2,1fr); gap:5px; margin-top:12px; }
+  #pname { color:var(--dim); font-size:12px; margin-top:8px; }
+  #ctl { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:12px; }
+  .param { display:flex; flex-direction:column; align-items:center; justify-content:flex-end; gap:6px; text-align:center; }
+  .knob { --v:0; position:relative; width:64px; height:64px; border-radius:50%; cursor:ns-resize; touch-action:none;
+    background:conic-gradient(from -135deg, var(--accent) calc(var(--v) * 270deg), rgba(255,255,255,.16) 0 270deg, transparent 0); }
+  .knob::before { content:""; position:absolute; inset:7px; border-radius:50%; background:#12122a; border:1px solid rgba(255,255,255,.12); }
+  .knob i { position:absolute; left:50%; top:9px; width:3px; height:16px; margin-left:-1.5px; border-radius:2px; background:#fff;
+    transform-origin:50% 23px; transform:rotate(calc(-135deg + var(--v) * 270deg)); }
+  .param .label { font-size:12px; }
+  .link { font-size:11px; color:var(--dim); border-radius:10px; padding:1px 8px; min-height:24px; background:none; }
+  .learn .link { color:#ffd479; border-color:#ffd479; }
+  .linked .link { color:var(--accent); }
+  #lever { display:grid; grid-template-columns:30px 1fr; grid-template-rows:auto 1fr auto auto; column-gap:6px; row-gap:2px; font-size:12px; }
+  #lever[hidden] { display:none; }
+  #lever input { grid-row:1 / 4; writing-mode:vertical-lr; direction:rtl; width:30px; height:112px; margin:0; accent-color:var(--accent); cursor:ns-resize; }
+  #leverNow { color:var(--dim); align-self:center; }
+  #lever .link { grid-column:1 / 3; justify-self:start; margin-top:4px; }
+  #flightRow { display:grid; grid-template-columns:1fr 1fr; gap:5px; margin-top:12px; }
+  #flightRow[hidden] { display:none; }
+  #bStyle[hidden], #style[hidden] { display:none; }
+  #style { margin-top:8px; }
+  #style select { font:inherit; font-size:12px; color:var(--fg); background:rgba(255,255,255,.08); border:1px solid rgba(255,255,255,.18); border-radius:8px; padding:5px 6px; min-height:32px; width:100%; margin-top:6px; }
+  .srow { display:grid; grid-template-columns:50px 1fr 50px; gap:6px; align-items:center; font-size:12px; margin:6px 0; color:var(--dim); }
+  .srow span:last-child { text-align:right; }
+  .srow input { width:100%; accent-color:var(--accent); }
+  .btns { display:grid; grid-template-columns:1fr 1fr; gap:5px; margin-top:12px; }
+  #log { color:var(--dim); font-size:12px; margin-top:10px; }
+  #log:empty { display:none; }
+  #help { color:var(--dim); font-size:12px; margin-top:8px; }
+  kbd { padding:0 3px; border:1px solid rgba(255,255,255,.3); border-radius:3px; font:inherit; }
+  #bShow { position:fixed; top:16px; left:16px; background:rgba(8,8,18,.88); transition:opacity .2s; }
+  #bShow[hidden] { display:none; }
+  body.idle #bShow { opacity:0; }
+  @media (prefers-reduced-motion: reduce) { * { transition:none !important; } }
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+<canvas id="ui"></canvas>
+<div id="hud">
+  <div class="top">
+    <h1>MIDI Bloom</h1>
+    <div>
+      <button id="bFull" title="Fullscreen (Enter)">Full</button>
+      <button id="bHide" title="Hide this panel (V)">Hide</button>
+    </div>
+  </div>
+  <div id="devs"></div>
+  <div id="status" role="status">Requesting MIDI access…</div>
+  <div id="chips" role="group" aria-label="Look"></div>
+  <div id="pname"></div>
+  <div id="ctl">
+    <div id="lever">
+      <input id="altIn" type="range" min="0" max="1" step="0.005" aria-label="Altitude, from the tunnel below to high above the land" title="Double-click to return to the ground">
+      <span>Up</span>
+      <span id="leverNow"></span>
+      <span>Down</span>
+      <button class="link"></button>
+    </div>
+    <div id="params"></div>
+  </div>
+  <div id="flightRow">
+    <button id="bView" title="Switch between following the ship and flying from the cockpit (C)">View: chase</button>
+    <button id="bStyle" aria-expanded="false" aria-controls="style">+ Style</button>
+  </div>
+  <div id="style" hidden></div>
+  <div class="btns">
+    <button id="bSound" title="Mute the built-in synth. The visuals still react to it.">Sound: on</button>
+    <button id="bCam" title="Your movement plays the scene like notes do: wave left or right to steer, up or down to climb, and sharp moves plant blooms. Stays on your computer, nothing is uploaded.">Webcam</button>
+    <button id="bMic" title="Drive the visuals from a microphone or line-in (GarageBand via a loopback device, guitar, voice). Nothing is played back out loud.">Mic / line-in</button>
+    <button id="bRec" title="Records the visuals plus sound to a video file you can download.">Record video</button>
+  </div>
+  <div id="log"></div>
+  <div id="help"></div>
+</div>
+<button id="bShow" hidden title="Show the panel (V)">Show panel</button>
+
+<script>
+'use strict';
+const cv = document.getElementById('gl');
+const uiCv = document.getElementById('ui'), uix = uiCv.getContext('2d');
+const sceneCv = document.createElement('canvas');
+const ctx = sceneCv.getContext('2d');
+let W = 0, H = 0, DPR = 1;
+
+/* ---------- state ---------- */
+const held = new Map();
+const particles = [], rings = [];
+let sustain = false, bend = 0, pressure = 0, flash = 0, rot = 0, spin = 0, T = 0, chord = null;
+const MAXP = 900;
+
+const PARAMS = [
+  { id: 'sym',   v: 0.45 }, { id: 'trail', v: 0.60 }, { id: 'hue',  v: 0.0 }, { id: 'size', v: 0.5 },   // fixed settings for the other looks
+  { id: 'warp',  v: 0.5 },  { id: 'glow',  v: 0.55 }, { id: 'dust', v: 0.5 },
+  { id: 'sens',  name: 'Sensitivity', v: 0.35, def: 0.35 },
+  { id: 'alt',   name: 'Altitude',    v: 0.5,  def: 0.5 },
+  { id: 'rough', v: 0.5 }, { id: 'angry', v: 0.0 }, { id: 'pamt', v: 0.35 },
+];
+let ccMap = {};
+try { ccMap = JSON.parse(localStorage.getItem('midibloom5.cc') || '{}'); } catch (e) {}
+let learnId = null;
+const P = id => PARAMS.find(p => p.id === id).v;
+
+const NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+const noteName = n => NAMES[n % 12] + (Math.floor(n / 12) - 1);
+const hsl = (h, s, l, a) => `hsla(${(h % 360 + 360) % 360},${s}%,${l}%,${a})`;
+const sstep = (a, b, x) => { const t = Math.min(1, Math.max(0, (x - a) / (b - a))); return t * t * (3 - 2 * t); };
+
+const unit = () => Math.min(W, H) / 2;
+function notePos(n) {
+  const ang = (n % 12) / 12 * Math.PI * 2 - Math.PI / 2 + n / 12 * 0.35;
+  const r = unit() * (0.12 + 0.8 * Math.min(1, Math.max(0, (n - 21) / 87)));
+  return { x: Math.cos(ang) * r, y: Math.sin(ang) * r, ang, r };
+}
+const noteHue = n => ((n % 12) * 30 + P('hue') * 360) % 360;
+
+const ship = { x: 0, y: -.55, roll: 0, pitch: 0, flare: 0, hue: .55, t: 0, side: 0 };   // the ship, in view space ahead of the chase camera
+const contrail = [], ribbonBuf = new Float32Array(64);
+let noteAlt = .25;   // height your playing asks for: high notes climb, low notes dive
+
+/* the flight: position, heading and steering of the camera */
+const flight = { x: 0, z: 0, h: 0, steer: 0, alt: .3 };
+let steerMouse = 0, steerKey = 0, steerMotion = 0, altKey = 0, diveAmt = 0, fHeight = 0, lastMove = -99;
+const RM = matchMedia('(prefers-reduced-motion: reduce)');
+function plantBloom(lat, hue) {   // a glowing bloom in the world ahead of you
+  const dx = Math.sin(flight.h), dz = Math.cos(flight.h);
+  trail.unshift({ x: flight.x + dx * 18 + dz * lat, y: flight.z + dz * 18 - dx * lat, t: T, hue }); if (trail.length > 24) trail.pop();
+}
+/* webcam movement: a tiny 32x24 copy of the picture is compared frame to frame */
+const mCv = document.createElement('canvas'); mCv.width = 32; mCv.height = 24;
+const mCtx = mCv.getContext('2d', { willReadFrequently: true });
+let prevLum = null, motion = 0, mcx = .5, mcy = .5, lastBloom = 0;
+function motionStep(dt) {
+  if (!(camOn && camVideo && camVideo.readyState >= 2)) { motion *= Math.exp(-dt * 4); prevLum = null; steerMotion = 0; return; }
+  mCtx.drawImage(camVideo, 0, 0, 32, 24);
+  const d = mCtx.getImageData(0, 0, 32, 24).data, lum = new Float32Array(768);
+  let sum = 0, sx = 0, sy = 0;
+  for (let i = 0; i < 768; i++) {
+    const l = d[i * 4] * .3 + d[i * 4 + 1] * .59 + d[i * 4 + 2] * .11; lum[i] = l;
+    if (prevLum) { const df = Math.abs(l - prevLum[i]); if (df > 14) { sum += df; sx += (i % 32) * df; sy += ((i / 32) | 0) * df; } }
+  }
+  prevLum = lum;
+  if (sum > 0) { mcx = 1 - (sx / sum + .5) / 32; mcy = (sy / sum + .5) / 24; }      // mirrored, like a mirror
+  const raw = Math.min(1, sum / (768 * 40) * (.6 + P('sens') * 3));
+  motion += (raw - motion) * Math.min(1, dt * 8);
+  if (motion > .04) {
+    onsetEnv = Math.max(onsetEnv, motion * 1.2); flash = Math.min(1, flash + motion * .02); bass = Math.max(bass, motion * .6);
+    noteAlt = .02 + .8 * (1 - mcy); steerMotion = (mcx - .5) * 2;
+    if (T - lastBloom > .35 && motion > .12) { lastBloom = T; registerOnset(Math.min(1, motion)); plantBloom((mcx - .5) * 14, (mcy * 1.3 + T * .05) % 1); }
+  } else steerMotion = 0;
+}
+const hudEl = document.getElementById('hud');
+uiCv.addEventListener('pointermove', e => {       // steer around the middle of the open area, so the panel never eats the left turn
+  const left = hudEl.classList.contains('hidden') ? 0 : hudEl.getBoundingClientRect().right;
+  const c = (e.clientX - (left + W) / 2) / Math.max(1, (W - left) / 2), a = Math.abs(c);
+  steerMouse = a < .12 ? 0 : Math.sign(c) * Math.min(1, (a - .12) / .88);
+  lastMove = T; document.body.classList.remove('idle');
+});
+uiCv.addEventListener('pointerleave', () => { steerMouse = 0; });
+
+/* tempo clock, learned from the timing of your notes, plus the blooms you have planted */
+const onsets = [], trail = [], trailBuf = new Float32Array(96);
+let beatPeriod = .5, beatPhase = 0, beatPulse = 0, onsetEnv = 0, lastOnset = -99;
+function registerOnset(v) {
+  onsets.push(T); if (onsets.length > 9) onsets.shift();
+  const iv = []; for (let i = 1; i < onsets.length; i++) { const d = onsets[i] - onsets[i - 1]; if (d > .08 && d < 1.6) iv.push(d); }
+  if (iv.length >= 3) {
+    iv.sort((a, b) => a - b); let m = iv[iv.length >> 1];
+    while (m < .3) m *= 2; while (m > .9) m /= 2;
+    beatPeriod += (m - beatPeriod) * .3;
+    const err = beatPhase < .5 ? beatPhase : beatPhase - 1; beatPhase -= err * .5;   // nudge the clock onto your playing
+  }
+  onsetEnv = Math.min(1, onsetEnv + .5 + v * .5); lastOnset = T;
+}
+
+/* =====================================================================
+   AUDIO: synth + drums + reverb/delay (analysed for the visuals)
+   ===================================================================== */
+const A = { ctx: null, mute: false };
+let fft = new Uint8Array(1024), td = new Uint8Array(2048);
+const voices = {};
+const NS = 96, spec = new Float32Array(NS), spec16 = new Float32Array(16);
+let bass = 0, mid = 0, treb = 0, level = 0;
+
+function audioInit() {
+  if (A.ctx) { if (A.ctx.state !== 'running') A.ctx.resume(); return; }
+  const c = new (window.AudioContext || window.webkitAudioContext)(); A.ctx = c;
+  const bus = c.createGain(); bus.gain.value = .8;
+  const comp = c.createDynamicsCompressor(); comp.threshold.value = -16; comp.knee.value = 18; comp.ratio.value = 5;
+  const dly = c.createDelay(1); dly.delayTime.value = .31;
+  const fb = c.createGain(); fb.gain.value = .38;
+  const dlp = c.createBiquadFilter(); dlp.type = 'lowpass'; dlp.frequency.value = 2600;
+  const dg = c.createGain(); dg.gain.value = .28;
+  bus.connect(dly); dly.connect(dlp); dlp.connect(fb); fb.connect(dly); dlp.connect(dg); dg.connect(comp);
+  const conv = c.createConvolver(), len = c.sampleRate * 2.4 | 0, ib = c.createBuffer(2, len, c.sampleRate);
+  for (let ch = 0; ch < 2; ch++) { const d = ib.getChannelData(ch); for (let i = 0; i < len; i++) d[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / len, 2.6); }
+  conv.buffer = ib;
+  const rg = c.createGain(); rg.gain.value = .3; bus.connect(conv); conv.connect(rg); rg.connect(comp);
+  bus.connect(comp);
+  const an = c.createAnalyser(); an.fftSize = 2048; an.smoothingTimeConstant = .55; comp.connect(an);
+  const out = c.createGain(); out.gain.value = A.mute ? 0 : .9; comp.connect(out); out.connect(c.destination);
+  const nb = c.createBuffer(1, c.sampleRate, c.sampleRate), nd = nb.getChannelData(0);
+  for (let i = 0; i < nd.length; i++) nd[i] = Math.random() * 2 - 1;
+  Object.assign(A, { bus, comp, an, out, noise: nb });
+  fft = new Uint8Array(an.frequencyBinCount); td = new Uint8Array(an.fftSize);
+  if (c.state !== 'running') c.resume();
+}
+function synthOn(note, v) {
+  audioInit(); if (!A.ctx) return;
+  const c = A.ctx, t = c.currentTime; synthOff(note, .02);
+  const f = 440 * Math.pow(2, (note - 69) / 12);
+  const filt = c.createBiquadFilter(); filt.type = 'lowpass'; filt.Q.value = 3;
+  filt.frequency.setValueAtTime(Math.min(9000, 700 + v * v * 7000 + f * 2), t);
+  filt.frequency.exponentialRampToValueAtTime(Math.max(300, f * 1.5 + 300 + v * 900), t + .5);
+  const peak = .05 + v * .2, amp = c.createGain();
+  amp.gain.setValueAtTime(0, t); amp.gain.linearRampToValueAtTime(peak, t + .012); amp.gain.setTargetAtTime(peak * .6, t + .012, .25);
+  const oscs = [['sawtooth', 0, 1], ['sawtooth', 8, .8], ['square', -1200, .3]].map(([type, cents, g]) => {
+    const o = c.createOscillator(); o.type = type; o.frequency.value = f; o.detune.value = cents + bend * 200;
+    const og = c.createGain(); og.gain.value = g * .5; o.connect(og).connect(filt); o.start(t); return { o, base: cents };
+  });
+  filt.connect(amp).connect(A.bus);
+  voices[note] = { oscs, amp };
+}
+function synthOff(note, tau) {
+  const vo = voices[note]; if (!vo) return; delete voices[note];
+  const t = A.ctx.currentTime, k = tau || .14;
+  vo.amp.gain.cancelScheduledValues(t); vo.amp.gain.setTargetAtTime(0, t, k);
+  vo.oscs.forEach(x => x.o.stop(t + k * 8));
+}
+function drum(note, v) {
+  audioInit(); if (!A.ctx) return;
+  const c = A.ctx, t = c.currentTime, g = c.createGain(); g.connect(A.bus);
+  const noise = (hp, dur, gain) => {
+    const s = c.createBufferSource(); s.buffer = A.noise; const f = c.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = hp;
+    const ng = c.createGain(); ng.gain.setValueAtTime(gain * v, t); ng.gain.exponentialRampToValueAtTime(.001, t + dur);
+    s.connect(f).connect(ng).connect(g); s.start(t); s.stop(t + dur);
+  };
+  const tone = (f0, f1, dur, gain, type) => {
+    const o = c.createOscillator(); o.type = type || 'sine'; o.frequency.setValueAtTime(f0, t); o.frequency.exponentialRampToValueAtTime(f1, t + dur * .7);
+    const og = c.createGain(); og.gain.setValueAtTime(gain * v, t); og.gain.exponentialRampToValueAtTime(.001, t + dur);
+    o.connect(og).connect(g); o.start(t); o.stop(t + dur);
+  };
+  if (note === 35 || note === 36) { tone(160, 38, .42, .9); noise(3000, .02, .15); }
+  else if (note >= 37 && note <= 40) { tone(190, 120, .16, .35, 'triangle'); noise(1400, .2, .5); }
+  else if (note === 42 || note === 44) noise(7000, .05, .3);
+  else if (note === 46) noise(7000, .28, .26);
+  else if (note === 49 || note === 57) noise(5000, .9, .3);
+  else tone(110 + (note % 12) * 14, 60 + (note % 12) * 6, .3, .6);
+}
+function setBendAudio() {
+  for (const k in voices) voices[k].oscs.forEach(x => x.o.detune.setTargetAtTime(x.base + bend * 200, A.ctx.currentTime, .02));
+}
+
+/* =====================================================================
+   MIDI events
+   ===================================================================== */
+function noteOn(note, vel, ch) {
+  const v = Math.min(1, vel / 127 * (0.3 + P('sens') * 1.4));   // Sensitivity dial scales how hard every note hits
+  held.set(note, { vel: v, down: true, released: false, fade: 1, born: performance.now(), ch });
+  const pos = notePos(note), hue = noteHue(note);
+  if (ch === 9) {
+    drum(note, v);
+    registerOnset(v);
+    rings.push({ x: 0, y: 0, r: 0, v, hue: (note * 47) % 360, grow: 520 + v * 500, life: 1, big: true });
+    flash = Math.min(1, flash + 0.25 + v * 0.4);
+    spin += (Math.random() < .5 ? -1 : 1) * v * 1.2;
+    burst(0, 0, hue, 20 + v * 50, 160 + v * 380);
+    return;
+  }
+  synthOn(note, v);
+  noteAlt = .02 + .8 * Math.min(1, Math.max(0, (note - 36) / 60));   // pitch -> altitude
+  ship.flare = 1; ship.hue = (note % 12) / 12; ship.side = ((note % 12) - 5.5) / 5.5;   // each note also sends the ship to its own side, so the contrail traces the melody
+  registerOnset(v);
+  plantBloom(((note % 12) - 5.5) * 1.2, (note % 12) / 12);
+  rings.push({ x: pos.x, y: pos.y, r: 6, v, hue, grow: 120 + v * 260, life: 1 });
+  burst(pos.x, pos.y, hue, (6 + v * 26) * (0.5 + P('size')), 60 + v * 220);
+  flash = Math.min(1, flash + v * 0.12);
+}
+function noteOff(note) { const h = held.get(note); if (h) h.down = false; }
+function burst(x, y, hue, n, speed) {
+  for (let i = 0; i < n && particles.length < MAXP; i++) {
+    const a = Math.random() * Math.PI * 2, s = speed * (0.25 + Math.random() * 0.75);
+    particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: 1, dec: 0.5 + Math.random() * 0.9,
+      hue: hue + (Math.random() - .5) * 30, size: (1 + Math.random() * 2.5) * (0.6 + P('size')) });
+  }
+}
+function cc(num, val) {
+  const v = val / 127;
+  if (num === 64) { sustain = val >= 64; return; }
+  if (num === 123 || num === 120) { for (const n of held.keys()) synthOff(n); held.clear(); return; }
+  if (learnId) {
+    for (const k in ccMap) if (ccMap[k] === learnId) delete ccMap[k];
+    ccMap[num] = learnId; learnId = null; saveMap();
+  }
+  const p = PARAMS.find(q => q.id === ccMap[num]);
+  if (!p) {                                    // unlinked controls never grab a dial by themselves
+    if (num === 2 || num === 11) pressure = Math.max(pressure, v);   // breath / expression: opens the throttle
+    return;
+  }
+  p.v = v; renderParams();
+}
+function saveMap() { try { localStorage.setItem('midibloom5.cc', JSON.stringify(ccMap)); } catch (e) {} }
+
+function onMessage(ev, devEl) {
+  const [s, d1 = 0, d2 = 0] = ev.data;
+  const type = s & 0xf0, ch = s & 0x0f;
+  if (s >= 0xf8) return;
+  if (devEl) { devEl.classList.add('on'); clearTimeout(devEl._t); devEl._t = setTimeout(() => devEl.classList.remove('on'), 90); }
+  let msg = null;
+  if (type === 0x90 && d2 > 0) { noteOn(d1, d2, ch); msg = `Note on  ${noteName(d1)}  vel ${d2}`; }
+  else if (type === 0x80 || type === 0x90) { noteOff(d1); msg = `Note off ${noteName(d1)}`; }
+  else if (type === 0xb0) { cc(d1, d2); msg = `CC ${d1} = ${d2}`; }
+  else if (type === 0xe0) { bend = ((d2 << 7 | d1) - 8192) / 8192; if (A.ctx) setBendAudio(); msg = `Pitch bend ${bend.toFixed(2)}`; }
+  else if (type === 0xd0) { pressure = d1 / 127; msg = `Aftertouch ${d1}`; }
+  else if (type === 0xa0) { const h = held.get(d1); if (h) h.vel = Math.max(h.vel, d2 / 127); msg = `Poly AT ${noteName(d1)} ${d2}`; }
+  if (msg) document.getElementById('log').textContent = `ch${ch + 1}  ${msg}`;
+}
+
+const statusEl = document.getElementById('status'), devsEl = document.getElementById('devs');
+let midiCount = 0;
+function bindInputs(access) {
+  devsEl.innerHTML = ''; midiCount = 0;
+  access.inputs.forEach(inp => {
+    midiCount++;
+    const row = document.createElement('div'); row.className = 'dev';
+    const dot = document.createElement('span'); dot.className = 'dot';
+    const name = document.createElement('span'); name.textContent = inp.name || inp.id;
+    row.append(dot, name); devsEl.append(row);
+    inp.onmidimessage = e => onMessage(e, dot);
+  });
+  setStatus();
+}
+let midiErr = '';
+function setStatus(extra, isErr) {
+  statusEl.className = isErr || (!extra && midiErr) ? 'err' : '';
+  statusEl.textContent = extra || midiErr || (midiCount ? '' : 'No MIDI device found. Plug one in, or play the A–; keys.');
+}
+if (!navigator.requestMIDIAccess) { midiErr = 'This browser has no MIDI support. Use Chrome or Edge. The A–; keys still play.'; setStatus(); }
+else navigator.requestMIDIAccess().then(access => { bindInputs(access); access.onstatechange = () => bindInputs(access); })
+  .catch(() => { midiErr = 'This browser blocked MIDI. In Chrome, click the icon left of the address, set MIDI devices to Allow, then reload.'; setStatus(); });
+
+/* =====================================================================
+   HUD: knobs, looks, buttons
+   ===================================================================== */
+const controls = [];
+const setParam = (p, v) => { p.v = Math.min(1, Math.max(0, v)); renderParams(); };
+function addControl(p, el, btn, show) {
+  btn.onclick = () => { learnId = learnId === p.id ? null : p.id; renderParams(); };
+  controls.push({ p, el, btn, show });
+}
+(function buildSens() {
+  const p = PARAMS.find(q => q.id === 'sens'), el = document.createElement('div'); el.className = 'param';
+  el.innerHTML = `<div class="knob" role="slider" tabindex="0" aria-label="${p.name}" aria-valuemin="0" aria-valuemax="100" title="How hard notes and sound hit the scene. Double-click to reset."><i></i></div><div class="label">${p.name}</div><button class="link"></button>`;
+  const knob = el.querySelector('.knob');
+  let startY = 0, startV = 0;
+  knob.addEventListener('pointerdown', e => { knob.setPointerCapture(e.pointerId); startY = e.clientY; startV = p.v; });
+  knob.addEventListener('pointermove', e => { if (knob.hasPointerCapture(e.pointerId)) setParam(p, startV + (startY - e.clientY) / 150); });
+  knob.addEventListener('wheel', e => { e.preventDefault(); setParam(p, p.v - e.deltaY / 800); }, { passive: false });
+  knob.addEventListener('dblclick', () => setParam(p, p.def));
+  knob.addEventListener('keydown', e => {
+    const d = { ArrowUp: .02, ArrowRight: .02, ArrowDown: -.02, ArrowLeft: -.02 }[e.key];
+    if (d) { e.preventDefault(); setParam(p, p.v + d); }
+    else if (e.key === 'Home') setParam(p, 0); else if (e.key === 'End') setParam(p, 1);
+  });
+  document.getElementById('params').append(el);
+  addControl(p, el, el.querySelector('.link'), () => {
+    knob.style.setProperty('--v', p.v); knob.setAttribute('aria-valuenow', Math.round(p.v * 100));
+  });
+})();
+const altIn = document.getElementById('altIn'), leverEl = document.getElementById('lever'), leverNow = document.getElementById('leverNow');
+(function buildLever() {
+  const p = PARAMS.find(q => q.id === 'alt');
+  altIn.addEventListener('input', () => setParam(p, +altIn.value));
+  altIn.addEventListener('dblclick', () => setParam(p, p.def));
+  addControl(p, leverEl, leverEl.querySelector('.link'), () => {
+    altIn.value = p.v;
+    const u = (p.v - .5) * 2;
+    leverNow.textContent = u > .12 ? 'Above the land' : u >= -.12 ? 'Near the ground' : u > -.5 ? 'Diving' : 'In the tunnel';
+  });
+})();
+function renderParams() {
+  for (const { p, el, btn, show } of controls) {
+    show();
+    const num = Object.keys(ccMap).find(k => ccMap[k] === p.id);
+    el.classList.toggle('learn', learnId === p.id);
+    el.classList.toggle('linked', learnId !== p.id && !!num);
+    btn.textContent = learnId === p.id ? 'Turn knob…' : num ? 'Linked ✓' : 'Link';
+    btn.title = num ? `Your knob #${num} (click to change)` : 'Click, then turn a knob on your MIDI device';
+  }
+}
+renderParams();
+
+let partMode = 1;
+const styleBtn = document.getElementById('bStyle'), styleBox = document.getElementById('style');
+(function buildStyle() {
+  styleBtn.onclick = () => {
+    styleBox.hidden = !styleBox.hidden;
+    styleBtn.textContent = styleBox.hidden ? '+ Style' : '− Style';
+    styleBtn.setAttribute('aria-expanded', String(!styleBox.hidden));
+  };
+  const slider = (id, a, b) => {
+    const p = PARAMS.find(q => q.id === id), r = document.createElement('div'); r.className = 'srow';
+    r.innerHTML = `<span>${a}</span><input type="range" min="0" max="1" step="0.01" aria-label="${a} to ${b}"><span>${b}</span>`;
+    const inp = r.querySelector('input'); inp.value = p.v;
+    inp.oninput = () => { p.v = +inp.value; }; styleBox.append(r);
+  };
+  slider('rough', 'Smooth', 'Rough');
+  slider('angry', 'Calm', 'Angry');
+  const sel = document.createElement('select'); sel.setAttribute('aria-label', 'Particle effect');
+  sel.title = 'Spores flare on notes, fireflies blink to the highs, embers rise with the bass, ash and snow fall slowly.';
+  ['No particles', 'Spores', 'Fireflies', 'Embers', 'Ash & snow'].forEach((t, i) => { const o = document.createElement('option'); o.textContent = t; if (i === partMode) o.selected = true; sel.append(o); });
+  sel.onchange = () => { partMode = sel.selectedIndex; sel.blur(); }; styleBox.append(sel);
+  slider('pamt', 'Few', 'Many');
+})();
+
+let chase = 1, chaseT = 1;      // 1 = follow the ship, 0 = cockpit
+const flightRow = document.getElementById('flightRow'), bView = document.getElementById('bView');
+const toggleView = () => { chase = chase ? 0 : 1; bView.textContent = chase ? 'View: chase' : 'View: cockpit'; };
+bView.onclick = toggleView;
+
+/* looks: 0 Descent, 1-3 raymarched 3D worlds */
+const LOOKS = ['Descent', 'Wormhole', 'Neon Lattice', 'Gyroid Cave'];
+const LOOKINFO = [
+  'Fly an organic world. Your notes bloom into the land.',
+  '3D: fly down a twisting, ribbed tunnel past glowing rings.',
+  '3D: a grid of neon girders with pulsing joints.',
+  '3D: a winding corridor through an organic, melting maze.',
+];
+let look = 0;
+const chipsEl = document.getElementById('chips'), pnameEl = document.getElementById('pname');
+LOOKS.forEach((n, i) => { const b = document.createElement('button'); b.textContent = n; b.onclick = () => setLook(i); chipsEl.append(b); });
+function setLook(i) {
+  look = (i + LOOKS.length) % LOOKS.length;
+  [...chipsEl.children].forEach((b, k) => { b.classList.toggle('active', k === look); b.setAttribute('aria-pressed', String(k === look)); });
+  pnameEl.textContent = LOOKINFO[look];
+  const flying = look === 0;                       // these only do anything in the flight
+  leverEl.hidden = !flying; flightRow.hidden = !flying; styleBox.hidden = !flying || styleBtn.getAttribute('aria-expanded') !== 'true';
+  document.getElementById('help').innerHTML = (flying ? 'Mouse or <kbd>←</kbd><kbd>→</kbd> steer · <kbd>↑</kbd><kbd>↓</kbd> climb, dive · <kbd>C</kbd> view · click plants a bloom<br>' : '')
+    + '<kbd>A</kbd>–<kbd>;</kbd> play · <kbd>Z</kbd><kbd>X</kbd> octave · <kbd>1</kbd>–<kbd>4</kbd> looks · <kbd>V</kbd> hide panel';
+}
+const nextLook = () => setLook(look + 1);
+
+const bSound = document.getElementById('bSound');
+const bCam = document.getElementById('bCam'), bMic = document.getElementById('bMic'), bRec = document.getElementById('bRec');
+bSound.onclick = toggleMute;
+function toggleMute() {
+  A.mute = !A.mute; audioInit();
+  if (A.out) A.out.gain.setTargetAtTime(A.mute ? 0 : .9, A.ctx.currentTime, .03);
+  bSound.textContent = A.mute ? 'Sound: muted' : 'Sound: on';
+  bSound.classList.toggle('active', A.mute);
+}
+
+let camVideo = null, camOn = false;
+bCam.onclick = async () => {
+  if (camOn) { camVideo.srcObject.getTracks().forEach(t => t.stop()); camOn = false; bCam.classList.remove('active'); bCam.textContent = 'Webcam'; return; }
+  try {
+    const s = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480, facingMode: 'user' } });
+    camVideo = camVideo || document.createElement('video'); camVideo.muted = true; camVideo.playsInline = true;
+    camVideo.srcObject = s; await camVideo.play();
+    camOn = true; bCam.classList.add('active'); bCam.textContent = 'Webcam: on'; setStatus();
+  } catch (e) { setStatus('Webcam unavailable: ' + e.message, true); }
+};
+let micOn = false, micNodes = null;
+bMic.onclick = async () => {
+  if (micOn) { micNodes.stream.getTracks().forEach(t => t.stop()); micNodes.src.disconnect(); micOn = false; bMic.classList.remove('active'); bMic.textContent = 'Mic / line-in'; return; }
+  try {
+    audioInit();
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false } });
+    const src = A.ctx.createMediaStreamSource(stream), g = A.ctx.createGain(); g.gain.value = 2.5;
+    src.connect(g); g.connect(A.an);
+    micNodes = { stream, src }; micOn = true; bMic.classList.add('active'); bMic.textContent = 'Mic: on'; setStatus();
+  } catch (e) { setStatus('Microphone unavailable: ' + e.message, true); }
+};
+let rec = null, recChunks = [];
+bRec.onclick = () => {
+  if (rec) { rec.stop(); return; }
+  try {
+    audioInit();
+    const dest = A.ctx.createMediaStreamDestination(); A.comp.connect(dest);
+    const stream = cv.captureStream(60); dest.stream.getAudioTracks().forEach(t => stream.addTrack(t));
+    const mime = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm'].find(m => MediaRecorder.isTypeSupported(m));
+    rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 16e6 }); recChunks = [];
+    rec.ondataavailable = e => e.data.size && recChunks.push(e.data);
+    rec.onstop = () => {
+      const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob(recChunks, { type: 'video/webm' }));
+      a.download = 'midi-bloom-' + Date.now() + '.webm'; a.click(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+      try { A.comp.disconnect(dest); } catch (e) {}
+      rec = null; bRec.textContent = 'Record video'; bRec.classList.remove('active');
+    };
+    rec.start(1000); bRec.textContent = 'Stop & save'; bRec.classList.add('active');
+  } catch (e) { rec = null; setStatus('Recording unavailable: ' + e.message, true); }
+};
+
+/* =====================================================================
+   computer keyboard + mouse
+   ===================================================================== */
+const KEYMAP = 'awsedftgyhujkolp;'.split('');
+let octave = 4;
+['pointerdown', 'keydown'].forEach(ev => addEventListener(ev, () => audioInit(), { passive: true }));
+const kbdHeld = {};
+const toggleFull = () => document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+const bShow = document.getElementById('bShow');
+const togglePanel = () => { const hide = hudEl.classList.toggle('hidden'); bShow.hidden = !hide; };
+document.getElementById('bFull').onclick = toggleFull;
+document.getElementById('bHide').onclick = togglePanel;
+bShow.onclick = togglePanel;
+hudEl.addEventListener('pointerup', e => { const el = e.target.closest('input,button,[role="slider"]'); if (el) el.blur(); });   // hand the arrow keys back to the flight
+addEventListener('keydown', e => {
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  const tag = e.target.tagName, k = e.key.toLowerCase();
+  if (tag === 'SELECT') return;
+  const isArrow = k.startsWith('arrow');
+  if (isArrow && (tag === 'INPUT' || e.target.getAttribute?.('role') === 'slider')) return;
+  if (k === 'arrowleft' || k === 'arrowright') { steerKey = k === 'arrowleft' ? -1 : 1; return; }
+  if (k === 'arrowup' || k === 'arrowdown') { altKey = k === 'arrowup' ? 1 : -1; return; }
+  if (k === 'enter') return tag === 'BUTTON' ? undefined : toggleFull();
+  if (k === 'v') return togglePanel();
+  if (k === 'c') return look === 0 ? toggleView() : undefined;
+  if (k >= '1' && k <= '4') return setLook(+k - 1);
+  if (k === 'n') return nextLook();
+  if (k === 'm') return toggleMute();
+  if (k === 'z') return void (octave = Math.max(0, octave - 1));
+  if (k === 'x') return void (octave = Math.min(8, octave + 1));
+  const i = KEYMAP.indexOf(k);
+  if (i < 0 || e.repeat) return;
+  const note = (octave + 1) * 12 + i;
+  kbdHeld[k] = note;
+  noteOn(note, 64 + Math.random() * 10 | 0, 0);
+  document.getElementById('log').textContent = `kbd  Note on ${noteName(note)}`;
+});
+addEventListener('keyup', e => {
+  const k = e.key.toLowerCase();
+  if (k === 'arrowleft' || k === 'arrowright') steerKey = 0;
+  if (k === 'arrowup' || k === 'arrowdown') altKey = 0;
+  if (k in kbdHeld) { noteOff(kbdHeld[k]); delete kbdHeld[k]; }      // the note you pressed, even if the octave changed since
+});
+addEventListener('blur', () => {                                     // switching apps must not leave a note or a turn stuck on
+  steerKey = altKey = 0;
+  for (const k in kbdHeld) { noteOff(kbdHeld[k]); delete kbdHeld[k]; }
+});
+uiCv.addEventListener('pointerdown', e => {
+  const x = e.clientX - W / 2, y = e.clientY - H / 2;
+  if (look === 0) { registerOnset(.7); plantBloom(x / (W / 2) * 7, Math.random()); return; }
+  rings.push({ x, y, r: 0, v: .8, hue: Math.random() * 360, grow: 300, life: 1 });
+  burst(x, y, Math.random() * 360, 40, 260); flash = Math.min(1, flash + .3);
+});
+
+/* =====================================================================
+   WEBGL2
+   ===================================================================== */
+const gl = cv.getContext('webgl2', { antialias: false, alpha: false, powerPreference: 'high-performance' });
+let GLOK = !!gl, fbW = 0, fbH = 0, tg = [null, null], cur = 0, sceneTex = null, camTex = null;
+let warpP = null, postP = null, rayP = null, descP = null, dustP = null, partP = null;
+let rayT = null, rayW = 0, rayH = 0, rayScale = .7, travel = 0, qAcc = 0, qN = 0;
+let IFMT;
+const noteBuf = new Float32Array(24), ptsBuf = new Float32Array(24);
+
+const VERT = `#version 300 es
+out vec2 vUv;
+void main(){ vec2 p = vec2(float((gl_VertexID<<1)&2), float(gl_VertexID&2)); vUv = p; gl_Position = vec4(p*2.-1., 0., 1.); }`;
+
+const NOISE = `
+float hash21(vec2 p){ p = fract(p*vec2(123.34,456.21)); p += dot(p,p+45.32); return fract(p.x*p.y); }
+float vnoise(vec2 p){ vec2 i=floor(p), f=fract(p); f=f*f*(3.-2.*f);
+  return mix(mix(hash21(i),hash21(i+vec2(1,0)),f.x), mix(hash21(i+vec2(0,1)),hash21(i+vec2(1,1)),f.x), f.y); }
+mat2 rot(float a){ float c=cos(a), s=sin(a); return mat2(c,-s,s,c); }`;
+
+/* ---- feedback warp ---- */
+const WARP = `#version 300 es
+precision highp float;
+uniform sampler2D uPrev, uScene, uRay, uCam;
+uniform vec2 uRes;
+uniform float uTime, uBass, uMid, uTreb, uFlash, uBend, uSpin, uWarp, uDecay, uGain, uFb, uCalm;
+uniform int uNPts, uUseCam;
+uniform vec3 uPts[8];
+in vec2 vUv; out vec4 o;
+${NOISE}
+vec3 hueRot(vec3 c, float a){ float cs=cos(a), sn=sin(a); vec3 k=vec3(.57735);
+  return c*cs + cross(k,c)*sn + k*dot(k,c)*(1.-cs); }
+void main(){
+  vec2 asp = vec2(uRes.x/uRes.y, 1.);
+  vec2 p = (vUv-.5)*2.*asp;
+  float w = .5 + uWarp;
+  float calm = 1. - .85*uCalm;                         // the landscape stays crisp; the deeper states smear and echo
+  vec2 q = p * (1. - (.010 + .022*uBass + .030*uFlash)*w*calm);
+  q = rot((.004 + uSpin*.012 + uBend*.012)*w*calm) * q;
+  for (int i=0;i<8;i++){
+    if (i >= uNPts) break;
+    vec2 c = uPts[i].xy; vec2 d = q - c;
+    float f = uPts[i].z * exp(-dot(d,d)*7.);
+    q = c + rot(f*.22) * d * (1. - f*.03);
+  }
+  vec2 uvq = q/(2.*asp) + .5;
+  vec2 px = 1./uRes;
+  vec3 prev = textureLod(uPrev, uvq, 0.).rgb * .5
+            + textureLod(uPrev, uvq + px*vec2( .7, .4), 0.).rgb * .25
+            + textureLod(uPrev, uvq - px*vec2( .7, .4), 0.).rgb * .25;
+  prev = hueRot(prev, .004 + uTreb*.014 + uFlash*.02);
+  float lum = dot(prev, vec3(.299,.587,.114));
+  prev = mix(vec3(lum), prev, 1.025);
+  prev *= uDecay;
+  vec3 sc = texture(uScene, vUv).rgb;
+  vec3 ray = texture(uRay, vUv).rgb;
+  vec3 res = mix(ray, prev/uDecay, uFb*(1. - .5*uCalm)) + sc*uGain*.6;
+  if (uUseCam == 1) {
+    vec3 cm = texture(uCam, vec2(1.-vUv.x, vUv.y)).rgb;
+    float l = dot(cm, vec3(.299,.587,.114));
+    float e = length(vec2(dFdx(l), dFdy(l))) * 12.;
+    vec3 tint = .5 + .5*cos(6.2831853*(uTime*.05 + vec3(0.,.33,.67)));
+    res += tint * (l*.16 + e) * (.5 + uBass);
+  }
+  o = vec4(min(res, vec3(24.)), 1.);
+}`;
+
+const POST = `#version 300 es
+precision highp float;
+uniform sampler2D uTex;
+uniform vec2 uRes;
+uniform float uTime, uFlash, uEnergy, uGlow, uBass, uFlight;
+in vec2 vUv; out vec4 o;
+${NOISE}
+float fbm(vec2 p){ float s=0., a=.5; for(int i=0;i<5;i++){ s+=a*vnoise(p); p=rot(.5)*p*2.03; a*=.5; } return s; }
+vec3 aces(vec3 x){ return clamp((x*(2.51*x+.03))/(x*(2.43*x+.59)+.14), 0., 1.); }
+void main(){
+  vec2 uv = vUv, c = uv-.5;
+  float asp = uRes.x/uRes.y;
+  float ca = (.0012 + .008*uFlash + .0025*uEnergy) * (.4 + length(c)*2.);
+  vec3 col;
+  col.r = textureLod(uTex, uv + c*ca, 0.).r;
+  col.g = textureLod(uTex, uv, 0.).g;
+  col.b = textureLod(uTex, uv - c*ca, 0.).b;
+  vec3 b = textureLod(uTex,uv,2.).rgb*.20 + textureLod(uTex,uv,3.).rgb*.26 + textureLod(uTex,uv,4.).rgb*.28
+         + textureLod(uTex,uv,5.).rgb*.24 + textureLod(uTex,uv,6.).rgb*.20;
+  vec3 rays = vec3(0.); vec2 dir = (vec2(.5)-uv)*.05; vec2 s = uv;
+  for (int i=0;i<12;i++){ s += dir; rays += textureLod(uTex, s, 2.).rgb * (1.-float(i)/12.); }
+  rays /= 6.;
+  vec2 dp = c*vec2(asp,1.)*2.2;
+  float dust = fbm(dp + vec2(uTime*.02, -uTime*.015)) * fbm(dp*1.7 - uTime*.01);
+  vec3 dcol = mix(vec3(.05,.08,.30), vec3(.30,.07,.28), fbm(dp*.7 + 4.)) * dust * (.35 + uEnergy*.4 + uBass*.4);
+  b = max(b - vec3(.18), 0.);
+  rays = max(rays - vec3(.15), 0.);
+  col += b*uGlow*.9 + rays*(.05 + uEnergy*.06)*uGlow*(1. - .9*uFlight) + dcol*.5*(1. - .85*uFlight);
+  float avgL = dot(textureLod(uTex, vec2(.5), 10.).rgb, vec3(.333));      // auto-dimmer: the frame can never blow out to white
+  col *= clamp(.40/max(avgL, .05), .35, 1.);
+  col *= 1. + .25*uFlash;
+  col = aces(col*.8);
+  col = max(col - .015, 0.);
+  float vig = smoothstep(1.35, .30, length(c*vec2(asp,1.)*1.15));
+  col *= mix(.35, 1., vig);
+  col += (hash21(uv*uRes + fract(uTime)*100.) - .5) * .028;
+  o = vec4(col, 1.);
+}`;
+
+/* ---- raymarched 3D worlds ---- */
+const RAY = `#version 300 es
+precision highp float;
+uniform vec2 uRes;
+uniform float uTime, uTravel, uBass, uMid, uTreb, uEnergy, uFlash, uBend, uSpin, uHue, uWarp;
+uniform int uMode, uSym, uNN;
+uniform vec4 uNotes[6];
+in vec2 vUv; out vec4 o;
+mat2 rot(float a){ float c=cos(a), s=sin(a); return mat2(c,-s,s,c); }
+vec3 pal(float t){ return .5 + .5*cos(6.2831853*(t + vec3(0.,.33,.67) + uHue)); }
+vec2 path(float z){ return vec2(sin(z*.3)*.9, cos(z*.23)*.9); }
+float mapW(vec3 p){
+  vec3 q = p;
+  q.xy = rot(q.z*.12 + sin(q.z*.05)*1.5) * q.xy;
+  float r = length(q.xy), a = atan(q.y,q.x);
+  float wall = (2.4 + .3*uBass - r + .38*sin(a*6. + q.z*.9)*sin(q.z*1.1)
+              + .1*sin(a*14. - q.z*3. + uTime*1.3)*(.5+uMid)) * .6;
+  vec2 cell = vec2(r - (1.5 + .25*sin(uTime + q.z)), mod(q.z, 2.4) - 1.2);
+  float ring = length(cell) - (.05 + .05*uBass);
+  return min(wall, ring);
+}
+float mapK(vec3 p){
+  p.xy = rot(p.z*.05 + uTime*.04) * p.xy;
+  float cs = 1.7;
+  p.xy += vec2(.37,.29)*cs;
+  vec3 id = floor(p/cs);
+  vec3 q = (fract(p/cs) - .5) * cs;
+  float h = fract(sin(dot(id, vec3(12.9,78.2,37.7))) * 43758.5);
+  float r = .03 + .035*uBass + .02*sin(uTime*2. + h*6.28);
+  float d = min(min(length(q.xy), length(q.yz)), length(q.xz)) - r;
+  float node = length(q) - (.10 + .16*uBass*h + .04*uMid);
+  return min(d, node);
+}
+float mapG(vec3 p){
+  float s = 1.5 + .25*sin(uTime*.2) + uBass*.2;
+  float g = dot(sin(p*s + vec3(0.,0.,uTime*.1)), cos(p.zxy*s));
+  float d = abs(g)/(s*1.4) - .03 - .05*uMid;
+  float cor = length(p.xy - path(p.z));
+  return max(d, 1.1 - cor);
+}
+float map(vec3 p){ return uMode==0 ? mapW(p) : (uMode==1 ? mapK(p) : mapG(p)); }
+vec3 nrm(vec3 p){ vec2 e = vec2(.004,-.004);
+  return normalize(e.xyy*map(p+e.xyy) + e.yyx*map(p+e.yyx) + e.yxy*map(p+e.yxy) + e.xxx*map(p+e.xxx)); }
+void main(){
+  vec2 uv = (vUv-.5) * vec2(uRes.x/uRes.y, 1.) * 2.;
+  if (uSym > 1) {
+    float n = float(uSym), a = atan(uv.y,uv.x) + uTime*.03, seg = 6.2831853/n;
+    a = abs(mod(a, seg) - seg*.5);
+    uv = length(uv) * vec2(cos(a), sin(a));
+  }
+  float fov = 1.15 - .35*uWarp - .2*uFlash;
+  vec3 rd = normalize(vec3(uv*(1. + .35*dot(uv,uv)*uWarp), fov));
+  rd.xy = rot(uTime*.07 + uBend*.8 + uSpin*.3) * rd.xy;
+  float amp = uMode==2 ? 1. : .25;
+  vec3 ro = vec3(path(uTravel)*amp, uTravel);
+  float t = 0.; vec3 acc = vec3(0.); bool hit = false; vec3 p = ro;
+  for (int i=0;i<84;i++){
+    p = ro + rd*t;
+    float d = map(p);
+    vec3 pc = pal(p.z*.05 + length(p.xy)*.12 + uTime*.04);
+    acc += pc * ((uMode==1 ? .032 : .011) * exp(-abs(d)*(uMode==1 ? 10. : 3.6))) * exp(-t*.06);
+    if (d < .003) { hit = true; break; }
+    t += max(d*.62, .004);
+    if (t > 45.) break;
+  }
+  vec3 col = acc * (.5 + .8*uEnergy + .6*uBass);
+  if (hit) {
+    vec3 n = nrm(p);
+    float fr = pow(1. - abs(dot(n,rd)), 2.5);
+    vec3 sc = pal(dot(n,rd)*1.4 + p.z*.08 + uTime*.05 + fr);
+    float band = .5 + .5*sin(p.z*4. - uTime*2. + length(p.xy)*3.);
+    col += sc * (.10 + .55*fr) * (.5 + .7*band) * exp(-t*.09);
+    for (int i=0;i<6;i++){
+      if (i >= uNN) break;
+      vec4 nt = uNotes[i];
+      vec2 np = path(p.z)*amp + nt.xy*1.6, dxy = p.xy - np;
+      col += pal(nt.w) * nt.z * exp(-dot(dxy,dxy)*.7) * 1.6 * (.5 + fr);
+    }
+  }
+  col *= 1. + uFlash*.7;
+  o = vec4(col, 1.);
+}`;
+
+/* ---- DESCENT ---- */
+const DESC = `#version 300 es
+precision highp float;
+uniform vec2 uRes;
+uniform float uTime, uTravel, uBass, uMid, uTreb, uEnergy, uFlash, uBend, uSpin, uWarp;
+uniform int uNN;
+uniform vec4 uNotes[6];
+uniform float uBeat, uOnset;  // tempo-clock pulse, per-note hit
+uniform float uDive, uAngry, uRough, uBolt, uChase;
+uniform vec3 uShipPos;       // ship in view space
+uniform vec4 uShipFx;        // roll, pitch, engine flare, colour
+uniform vec4 uRibbon[16];    // contrail on screen: x, y, strength, colour (newest first)
+uniform vec4 uCam;           // flight: x, altitude offset, heading, z
+uniform vec4 uTrail[24];     // planted blooms: x, z, age, hue (newest first)
+in vec2 vUv; out vec4 o;
+const float Y0 = -.16;       // horizon line
+mat2 rot(float a){ float c=cos(a), s=sin(a); return mat2(c,-s,s,c); }
+vec3 pal(float t){ return .5 + .5*cos(6.2831853*(t + vec3(0.,.33,.67))); }
+float h31(vec3 p){ p = fract(p*.3183099 + .1); p *= 17.; return fract(p.x*p.y*p.z*(p.x+p.y+p.z)); }
+float n3(vec3 x){ vec3 i=floor(x), f=fract(x); f=f*f*(3.-2.*f);
+  return mix(mix(mix(h31(i),h31(i+vec3(1,0,0)),f.x), mix(h31(i+vec3(0,1,0)),h31(i+vec3(1,1,0)),f.x),f.y),
+             mix(mix(h31(i+vec3(0,0,1)),h31(i+vec3(1,0,1)),f.x), mix(h31(i+vec3(0,1,1)),h31(i+vec3(1,1,1)),f.x),f.y), f.z); }
+float fbm3(vec3 p){ float s=0., a=.5; for(int i=0;i<4;i++){ s+=a*n3(p); p=p*2.02+vec3(1.7,9.2,3.1); a*=.5; } return s; }
+
+float lightning(){                                         // storm flashes: at most 3 a second, plus a kick on every note
+  float k = floor(uTime*3.), r = h31(vec3(k, 7., 3.)), f = fract(uTime*3.);
+  return uAngry*uBolt*(step(.78, r)*exp(-f*7.) + uOnset*.5);
+}
+// ---------- STATE 1: THE LANDSCAPE ----------
+vec3 skyAt(vec2 uv, vec2 sc, float sr){
+  float h = uv.y - Y0;
+  vec3 col = mix(vec3(1.,.55,.22), vec3(.85,.22,.42), smoothstep(0.,.45,h));
+  col = mix(col, vec3(.05,.02,.22), smoothstep(.3,1.3,h));
+  col *= 1. - .6*uAngry;
+  // stars that twinkle with the highs
+  vec2 sg = floor(uv*140.);
+  float hs = h31(vec3(sg, 1.));
+  col += vec3(.85,.9,1.) * step(.988,hs) * smoothstep(.25,.9,h) * (.35 + .9*uTreb*(.5+.5*sin(uTime*3. + hs*40.))) * (1. - .8*uAngry);
+  // aurora curtains, driven by the highs and mids
+  float curt = pow(max(0., sin(uv.x*3.2 + sin(uv.y*2. + uTime*.2)*.8 + uTime*.12)*.5 + .5), 3.);
+  float streak = .5 + .5*sin(uv.x*70. + fbm3(vec3(uv*3., uTime*.2))*6.);
+  float aur = curt*streak*smoothstep(.2,.7,h)*(1. - smoothstep(.9,1.4,h));
+  col += pal(uv.x*.25 + uTime*.04 + .35) * aur * (.10 + 1.0*uTreb + .4*uMid) * .98 * (1. - .6*uAngry);
+  if (uAngry > .01) {                                       // the angry sky: rolling storm cloud that flashes
+    float cl = fbm3(vec3(uv.x*1.4 + uTime*.05*(1. + uAngry*3.), uv.y*3.2, uTime*.12*(1. + uAngry*2.)));
+    float cm = smoothstep(.35, .75, cl) * smoothstep(-.05, .25, h) * uAngry;
+    vec3 stormc = mix(vec3(.10,.01,.04), vec3(.55,.10,.06), pow(cl, 2.)*(.5 + .5*uBass));
+    col = mix(col, stormc, cm*.9);
+    col += vec3(.65,.75,1.) * lightning() * (cm + .12*uAngry*smoothstep(0.,.3,h));
+  }
+  // the planet: banded, lit from the sun's side, with a ring
+  vec2 pc = vec2(-.66,.40); float R = .25;
+  vec2 pd = uv - pc; float pdist = length(pd);
+  float ringR = length(vec2(pd.x, pd.y*3.2));
+  float ring = smoothstep(.022,0.,abs(ringR-.40)) * (.55 + .45*sin(ringR*90.));
+  if (pd.y > 0.) col += vec3(.8,.6,.95)*ring*.35;
+  float inD = smoothstep(R, R-.006, pdist);
+  vec3 nn = vec3(pd/R, sqrt(max(0., 1. - dot(pd/R,pd/R))));
+  vec3 ldir = normalize(vec3(sc - pc, .6));
+  float lit = clamp(dot(nn, ldir)*.9 + .12, 0., 1.);
+  float bands = .5 + .5*sin(pd.y*26. + fbm3(vec3(pd*3.5, uTime*.04 + uMid*.5))*5.);
+  vec3 pcol = mix(vec3(.10,.04,.28), vec3(.95,.50,.30), bands) * (.12 + .9*lit);
+  col = mix(col, pcol, inD);
+  col += vec3(.4,.6,1.) * exp(-max(pdist-R,0.)*22.) * (1.-inD) * (.15 + .35*uBass);
+  if (pd.y <= 0.) col += vec3(.8,.6,.95)*ring*.35*(1.-inD*.0);
+  // the sun
+  vec2 d = uv - sc; float dd = length(d), ang = atan(d.y, d.x);
+  col += vec3(1.,.5,.2) * exp(-dd*2.8) * .55 * (1. - .6*uAngry);
+  col += vec3(1.,.62,.3) * pow(max(0., sin(ang*14. + uTime*.3)), 8.) * exp(-dd*2.2) * (.12 + .5*uMid);
+  col = mix(col, vec3(1.,.82,.55), smoothstep(sr, sr-.012, dd)*.95);
+  col += vec3(1.,.8,.6) * exp(-dd*14.) * .5 * (1. + uBass*2.);
+  // beat shockwave: a ring leaves the sun on every tempo beat
+  float bd = length(uv - sc);
+  col += vec3(1.,.7,.45) * smoothstep(.025, 0., abs(bd - (.1 + (1. - uBeat)*1.1))) * uBeat * .5;
+  return col;
+}
+// ---------- THE FLIGHT: an organic world you fly through ----------
+float terr(vec2 p, int oct){
+  float s = 0., a = .5, ws = 0., pers = .3 + .4*uRough; vec2 q = p*.07;     // Rough: how much fine detail rides on the big hills
+  for (int i=0;i<5;i++){ if (i >= oct) break; s += a*n3(vec3(q, float(i)*3.1)); ws += a; q = q*2.03 + vec2(5.2,1.3); a *= pers; }
+  s /= ws;
+  float ridge = 1. - abs(n3(vec3(p*.045 + 9., 2.))*2. - 1.);
+  float h = s*17. - 10. + ridge*ridge*(2.5 + 6.*uRough);
+  return h*(1. + .16*uBass);                              // the whole land heaves with the bass
+}
+vec3 actFlight(vec2 uv){
+  vec2 fwd = vec2(sin(uCam.z), cos(uCam.z));
+  vec3 ro = vec3(uCam.x, 0., uCam.w);
+  float hc = max(max(terr(ro.xz,3), terr(ro.xz + fwd*5.,3)), 0.);
+  ro.y = max(hc + .5, hc + 2.2 + uChase*1.1 + uCam.y*9. - uDive*2.2);
+  vec3 rd = normalize(vec3(uv.x*(1. + .15*dot(uv,uv)*uWarp), uv.y + .1 - uDive*1., 1.4));
+  rd.xy = rot(uBend*.25) * rd.xy;
+  rd.xz = rot(uCam.z) * rd.xz;
+  vec2 sc = vec2(.25, Y0 + .10 + .03*uBass);
+  float sr = .085 + (.05*uBass + .03*uBeat + .02*uOnset);
+  vec2 su = vec2(atan(rd.x, rd.z)*1.1, Y0 + rd.y*2.4);
+  vec3 skyc = skyAt(su, sc, sr);
+  float t = .3; bool hit = false; vec3 p = ro;
+  for (int i=0;i<80;i++){
+    p = ro + rd*t;
+    float d = p.y - max(terr(p.xz,3), 0.);
+    if (d < .012*t) { hit = true; break; }
+    t += max(d*.5, .04 + .004*t);
+    if (t > 130.) break;
+  }
+  if (!hit) return skyc;
+  float hgt = terr(p.xz, 3);
+  vec3 col;
+  vec3 fogc = skyAt(vec2(su.x, Y0 + .03), sc, sr) * vec3(.5,.34,.42);
+  if (hgt <= 0.) {                                         // the still water
+    vec3 n = normalize(vec3(sin(p.x*3. + uTime*2.)*.03*(.3 + uMid*3.), 1., sin(p.z*3. - uTime*1.7)*.03*(.3 + uMid*3.)));
+    vec3 rr = reflect(rd, n);
+    vec3 wc = skyAt(vec2(atan(rr.x, rr.z)*1.1, Y0 + max(rr.y,0.)*2.4), sc, sr) * vec3(.7,.75,.9);
+    float f = .2 + .8*pow(1. - abs(dot(n, rd)), 4.);
+    col = mix(vec3(.02,.04,.12), wc, f);
+  } else {
+    vec2 e = vec2(.08, 0.);
+    vec3 n = normalize(vec3(terr(p.xz - e.xy, 4) - terr(p.xz + e.xy, 4), 2.*e.x, terr(p.xz - e.yx, 4) - terr(p.xz + e.yx, 4)));
+    vec3 L = normalize(vec3(.225, .14, .97));
+    float dif = clamp(dot(n, L), 0., 1.);
+    float moss = smoothstep(0., 4., hgt) * (1. - smoothstep(5., 10., hgt));
+    vec3 rock = mix(vec3(.13,.05,.17), vec3(.58,.30,.32), clamp(hgt/10., 0., 1.));
+    rock = mix(rock, vec3(.20,.03,.03) + vec3(.35,.08,.03)*clamp(hgt/10., 0., 1.), uAngry*.8);
+    float vein = pow(1. - abs(n3(vec3(p.xz*.55, 4.))*2. - 1.), 8.);
+    col = rock*(.12 + dif*vec3(1.,.55,.35)*1.1);
+    col += mix(pal(p.x*.01 + p.z*.008 + uTime*.02), vec3(1.,.28,.04), uAngry) * vein * (.25 + .9*uMid) * (.4 + moss) * (1. - .5*uAngry);   // glowing veins in the ground
+    col += vec3(.2,.55,.35) * moss * .12 * (1. + uBass);
+    col += vec3(.8,.9,1.) * smoothstep(.96, 1., n3(vec3(p.xz*3., 7.))) * uTreb * 1.5 * smoothstep(3.,8.,hgt);
+  }
+  for (int i=0;i<24;i++){                                  // every note you played is still glowing where you planted it
+    vec4 b = uTrail[i];
+    if (b.z > 40.) break;
+    vec2 dq = p.xz - b.xy; float d2 = dot(dq, dq);
+    float s = sqrt(d2) - b.z*1.4;
+    col += pal(b.w) * (exp(-d2*.5/(1. + b.z*.3))*1.2*exp(-b.z*.1) + exp(-s*s*1.2)*.6*exp(-b.z*.3));
+  }
+  col += vec3(.5,.6,1.) * lightning() * .4;
+  return mix(col, fogc, 1. - exp(-t*.0085));
+}
+
+// ---------- THE ENDLESS TUNNEL ----------
+float mapH(vec3 p){
+  vec3 q = p; q.xy = rot(q.z*.08 + sin(q.z*.07)*1.2) * q.xy;
+  float r = length(q.xy), a = atan(q.y,q.x);
+  float R = 1.9 + .35*sin(q.z*.5) + .25*uBass;
+  float disp = (.22*sin(a*3. + q.z*.7)*sin(q.z*.9 + uTime*.4) + .12*sin(a*9. - q.z*2.)*(.5+uMid) + .08*n3(q*2. + uTime*.1)) * (.5 + uRough);
+  return (R + disp - r)*.55;
+}
+vec3 tunnelCol(vec2 uv, float dir, float hueOff){
+  vec3 rd = normalize(vec3(uv*(1. + .3*dot(uv,uv)*uWarp), 1. - .3*uWarp));
+  rd.xy = rot(uTime*.06 + uBend*.8 + uSpin*.3) * rd.xy;
+  vec3 ro = vec3(sin(uTravel*.2)*.3, cos(uTravel*.17)*.3, uTravel*dir);
+  float t = 0.; vec3 acc = vec3(0.); bool hit = false; vec3 p = ro;
+  for (int i=0;i<64;i++){
+    p = ro + rd*t;
+    float d = mapH(p);
+    acc += pal(p.z*.04 + hueOff + uTime*.03) * (.012*exp(-abs(d)*3.5)) * exp(-t*.07);
+    if (d < .004) { hit = true; break; }
+    t += max(d, .004);
+    if (t > 40.) break;
+  }
+  vec3 col = acc;
+  col += vec3(1.,.55,.25) * exp(-dot(uv,uv)*5.) * (.32 + .4*uBass);
+  if (hit){
+    vec2 e = vec2(.005,-.005);
+    vec3 n = normalize(e.xyy*mapH(p+e.xyy) + e.yyx*mapH(p+e.yyx) + e.yxy*mapH(p+e.yxy) + e.xxx*mapH(p+e.xxx));
+    float fr = pow(1. - abs(dot(n,rd)), 2.2);
+    vec3 sc = pal(dot(n,rd) + p.z*.05 + hueOff + uTime*.04);
+    col += sc * (.06 + .5*fr) * exp(-t*.12) * (.6 + .6*sin(p.z*3. - uTime*2.));
+  }
+  col = mix(col, vec3(dot(col, vec3(.33)))*vec3(1.5,.4,.25), uAngry*.6);
+  return col;
+}
+// ---------- THE SHIP ----------
+float boxD(vec3 p, vec3 b){ vec3 q = abs(p) - b; return length(max(q,0.)) + min(max(q.x,max(q.y,q.z)),0.); }
+float sdShip(vec3 p){
+  vec3 r = vec3(.17,.12,.85);                              // hull
+  float k0 = length(p/r), k1 = length(p/(r*r));
+  float d = k0*(k0 - 1.)/max(k1, 1e-4);
+  vec3 q = p; q.x = abs(q.x); q.z += q.x*.6;               // swept wings that taper to the tip
+  d = min(d, boxD(q - vec3(.38,-.02,-.08), vec3(.38,.016, mix(.3,.07, clamp(q.x/.76,0.,1.)))) - .006);
+  q = p - vec3(0.,.17,-.55); q.z += q.y*.8;                // tail fin
+  d = min(d, boxD(q, vec3(.012,.16,.15)) - .004);
+  q = p; q.x = abs(q.x) - .24; q.y += .04; q.z += .35;     // twin engines
+  q.z -= clamp(q.z, -.3, .3);
+  return min(d, length(q) - .065);
+}
+vec3 shipLocal(vec3 p){
+  p -= uShipPos;
+  p.xy = rot(-uShipFx.x) * p.xy;
+  p.yz = rot(-uShipFx.y) * p.yz;
+  return p;
+}
+vec3 drawShip(vec2 uv, vec3 col){
+  for (int i=0;i<15;i++){                                   // the contrail: your melody drawn in the air behind it
+    vec4 a = uRibbon[i], b = uRibbon[i+1];
+    if (a.z <= 0. || b.z <= 0.) continue;
+    vec2 ba = b.xy - a.xy, ua = uv - a.xy;
+    float h = clamp(dot(ua,ba)/max(dot(ba,ba),1e-5), 0., 1.), d = length(ua - ba*h);
+    col += pal(mix(a.w, b.w, h)) * (exp(-d*170.)*1.1 + exp(-d*34.)*.2) * mix(a.z, b.z, h);
+  }
+  vec3 ro = vec3(0.), rd = normalize(vec3(uv.x, uv.y + .1, 1.4));
+  vec3 oc = ro - uShipPos;
+  float bq = dot(oc, rd), cq = dot(oc,oc) - 1.1*1.1, disc = bq*bq - cq;
+  vec3 ec = pal(uShipFx.w);
+  vec2 ep = (uShipPos.xy + vec2(0.,-.03))/(uShipPos.z - .7)*1.4 - vec2(0.,.1);
+  vec3 halo = ec * exp(-length(uv - ep)*20.) * (.35 + uShipFx.z*1.3);
+  if (disc > 0.) {
+    float t = max(-bq - sqrt(disc), 0.), tEnd = -bq + sqrt(disc);
+    for (int i=0;i<40;i++){
+      vec3 l = shipLocal(ro + rd*t);
+      float d = sdShip(l);
+      if (d < .002) {
+        vec2 e = vec2(.004,-.004);
+        vec3 lp = l;
+        vec3 n = normalize(e.xyy*sdShip(lp+e.xyy) + e.yyx*sdShip(lp+e.yyx) + e.yxy*sdShip(lp+e.yxy) + e.xxx*sdShip(lp+e.xxx));
+        vec3 rl = vec3(n.xy, n.z);
+        rl.yz = rot(uShipFx.y) * rl.yz; rl.xy = rot(uShipFx.x) * rl.xy;   // normal back into view space
+        vec3 L = normalize(vec3(.225,.14,.97)); L.xz = rot(-uCam.z) * L.xz;
+        float dif = clamp(dot(rl, L), 0., 1.), top = clamp(rl.y*.5 + .5, 0., 1.);
+        float fr = pow(1. - abs(dot(rl, rd)), 3.);
+        vec3 c = vec3(.09,.10,.15)*(.35 + top*.7) + vec3(1.,.6,.35)*dif*.55 + pal(uTime*.03 + l.z*.2)*fr*.5;
+        c = mix(c, c + ec*.9, smoothstep(.09,.0,length(l.xy - vec2(0.,.08)))*step(.05,l.z)*step(l.z,.5));   // canopy
+        float noz = step(l.z, -.6)*step(length(vec2(abs(l.x) - .24, l.y + .04)), .07);
+        c += ec*noz*(1.5 + uShipFx.z*3.);
+        return mix(col, c, uChase) + halo*uChase;
+      }
+      t += d*.8;
+      if (t > tEnd) break;
+    }
+  }
+  return col + halo*uChase;
+}
+
+void main(){
+  vec2 uv = (vUv-.5) * vec2(uRes.x/uRes.y, 1.) * 2.;
+  float wT = smoothstep(.45, .8, uDive);                    // all the way down: you fall out of the world into the endless tunnel
+  vec3 col = vec3(0.);
+  if (wT < .999) col += (1. - wT) * actFlight(uv);
+  if (wT > .001) {
+    col += wT * tunnelCol(uv, 1., 0.);
+    for (int i=0;i<6;i++){ if (i >= uNN) break; vec4 nt = uNotes[i]; vec2 d = uv - nt.xy*.55; col += pal(nt.w) * nt.z * exp(-dot(d,d)*7.) * .9 * wT; }
+  }
+  if (uChase > .01) col = drawShip(uv, col);
+  col *= 1. + uFlash*.6;
+  o = vec4(col, 1.);
+}`;
+
+/* ---- GPU dust ---- */
+const DUST_V = `#version 300 es
+precision highp float;
+uniform float uTime, uTravel, uBass, uFlash, uAsp, uSize;
+out vec3 vCol; out float vA;
+float h11(float n){ return fract(sin(n*127.1)*43758.5453); }
+vec3 pal(float t){ return .5 + .5*cos(6.2831853*(t + vec3(0.,.33,.67))); }
+void main(){
+  float id = float(gl_VertexID);
+  float a0 = h11(id)*6.2831853, rr = .25 + 2.4*pow(h11(id+1.7), 1.6), z0 = h11(id+3.1);
+  float spd = .4 + 1.6*h11(id+9.);
+  float z = fract(z0 - uTravel*.045*spd);
+  float depth = mix(.14, 9., z);
+  float ang = a0 + uTime*.12*(1.+h11(id+5.)) + depth*.33;
+  rr *= 1. + .25*uBass*sin(depth*2. + uTime);
+  vec2 p = vec2(cos(ang), sin(ang))*rr / depth;
+  gl_Position = vec4(p.x/uAsp, p.y, 0., 1.);
+  gl_PointSize = clamp(uSize*(1.8/depth) + 1., 1., 12.);
+  vCol = pal(h11(id+2.)*.6 + depth*.04 + uTime*.03) * (.45 + 1.4*uFlash + .6*uBass);
+  vA = smoothstep(0.,.06,z) * (1. - smoothstep(.55,1.,z)) * (.15 + .85*h11(id+4.));
+}`;
+const DUST_F = `#version 300 es
+precision highp float;
+in vec3 vCol; in float vA; out vec4 o;
+void main(){ float d = length(gl_PointCoord - .5); float a = smoothstep(.5, 0., d); o = vec4(vCol*vA*a, 1.); }`;
+const PART_V = `#version 300 es
+precision highp float;
+uniform float uTime, uAsp, uSize, uBass, uMid, uTreb, uOnset, uBeat, uDive, uHead;
+uniform vec2 uPos; uniform int uMode;
+out vec3 vCol; out float vA;
+float h11(float n){ return fract(sin(n*127.1)*43758.5453); }
+vec3 pal(float t){ return .5 + .5*cos(6.2831853*(t + vec3(0.,.33,.67))); }
+void main(){
+  float id = float(gl_VertexID), B = 60.;
+  vec3 r = vec3(h11(id), h11(id+1.3), h11(id+2.7));
+  vec2 wxz = r.xy*B; float y; vec3 col; float sz;
+  if (uMode == 1) {                                         // spores: lazy motes that swell with the mids and flare on every note
+    wxz += vec2(sin(uTime*.2+id), cos(uTime*.17+id*1.3))*2.;
+    y = r.z*16. - 5. + sin(uTime*.3 + id*.7)*1.5;
+    col = pal(r.x*.5 + uTime*.03)*(.45 + .9*uMid + 1.4*uOnset); sz = 1. + 2.*r.y;
+  } else if (uMode == 2) {                                  // fireflies: wander and blink, brighter with the highs
+    wxz += vec2(sin(uTime*.6+id*3.), cos(uTime*.5+id*2.))*3.;
+    y = r.z*8. - 3.;
+    float bl = smoothstep(.55, 1., sin(uTime*(1. + r.x*2.) + id));
+    col = vec3(.8,1.,.3)*bl*(.5 + 3.*uTreb + 2.*uOnset); sz = 2. + 2.*bl;
+  } else if (uMode == 3) {                                  // embers: rise faster with the bass and the beat
+    float rise = fract(r.z + uTime*(.08 + .1*r.y)*(1. + uBass*3. + uBeat));
+    y = rise*18. - 3.; wxz += vec2(sin(y*.4+id), cos(y*.35+id*2.))*1.5;
+    col = mix(vec3(1.,.25,.05), vec3(1.,.8,.3), 1. - rise)*(1. - rise)*(1. + uBass*2. + uOnset*2.); sz = 1.5 + 2.*r.y;
+  } else {                                                  // ash and snow: a slow fall
+    float fall = fract(r.z - uTime*(.05 + .06*r.y)*(1. + uBass));
+    y = fall*16. - 4.; wxz += vec2(sin(uTime*.4+id)*1.2, cos(uTime*.3+id*1.7)*1.2);
+    col = vec3(.75,.8,.95)*.8*(.7 + uTreb); sz = 1. + 1.6*r.x;
+  }
+  vec2 rel = mod(wxz - uPos + B*.5, B) - B*.5;              // the box of particles is locked to the world, so you fly past them
+  float c = cos(uHead), s = sin(uHead);
+  vec3 v = vec3(c*rel.x - s*rel.y, y, s*rel.x + c*rel.y);
+  if (v.z < .5) { gl_Position = vec4(2.,2.,2.,1.); gl_PointSize = 1.; vCol = vec3(0.); vA = 0.; return; }
+  vec2 uv = vec2(v.x, v.y)/v.z*1.4 - vec2(0., .1);
+  gl_Position = vec4(uv.x/uAsp, uv.y, 0., 1.);
+  gl_PointSize = clamp(uSize*sz*3./v.z, 1., 14.);
+  vCol = col*.9;
+  vA = smoothstep(.5, 4., v.z)*(1. - smoothstep(22., 34., v.z))*(1. - smoothstep(.2,.5,uDive));
+}`;
+
+function compile(type, src) {
+  const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+  if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+  return s;
+}
+function program(fs, vs) {
+  const p = gl.createProgram();
+  gl.attachShader(p, compile(gl.VERTEX_SHADER, vs || VERT)); gl.attachShader(p, compile(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(p);
+  if (!gl.getProgramParameter(p, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(p));
+  const locs = {};
+  return { p, u: n => (n in locs ? locs[n] : (locs[n] = gl.getUniformLocation(p, n))) };
+}
+function makeTarget(w, h) {
+  const tex = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, tex);
+  gl.texStorage2D(gl.TEXTURE_2D, Math.floor(Math.log2(Math.max(w, h))) + 1, IFMT, w, h);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  const fbo = gl.createFramebuffer(); gl.bindFramebuffer(gl.FRAMEBUFFER, fbo);
+  gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+  gl.viewport(0, 0, w, h); gl.clearColor(0, 0, 0, 1); gl.clear(gl.COLOR_BUFFER_BIT);
+  return { tex, fbo };
+}
+function freeTargets() { tg.forEach(t => { if (t) { gl.deleteTexture(t.tex); gl.deleteFramebuffer(t.fbo); } }); }
+function allocRay() {
+  if (!GLOK || !rayP) return;
+  if (rayT) { gl.deleteTexture(rayT.tex); gl.deleteFramebuffer(rayT.fbo); }
+  rayW = Math.max(64, Math.round(fbW * rayScale)); rayH = Math.max(64, Math.round(fbH * rayScale));
+  rayT = makeTarget(rayW, rayH);
+  gl.bindTexture(gl.TEXTURE_2D, rayT.tex); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+}
+function setupTex(t) {
+  gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+}
+
+if (GLOK) {
+  try {
+    const f16 = gl.getExtension('EXT_color_buffer_float') || gl.getExtension('EXT_color_buffer_half_float');
+    gl.getExtension('OES_texture_float_linear');
+    IFMT = f16 ? gl.RGBA16F : gl.RGBA8;
+    warpP = program(WARP); postP = program(POST); rayP = program(RAY); descP = program(DESC); dustP = program(DUST_F, DUST_V); partP = program(DUST_F, PART_V);
+    sceneTex = gl.createTexture(); setupTex(sceneTex);
+    camTex = gl.createTexture(); setupTex(camTex);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([0, 0, 0, 255]));
+  } catch (e) { GLOK = false; console.error(e); setStatus('Graphics setup failed: ' + e.message, true); }
+} else setStatus('WebGL2 is not available in this browser.', true);
+
+function resize() {
+  DPR = Math.min(2, window.devicePixelRatio || 1);
+  W = innerWidth; H = innerHeight;
+  uiCv.width = Math.round(W * DPR); uiCv.height = Math.round(H * DPR);
+  const k = Math.min(1, 1920 / (W * DPR));
+  cv.width = Math.round(W * DPR * k); cv.height = Math.round(H * DPR * k);
+  const sk = Math.min(1, 1280 / (W * DPR));
+  sceneCv.width = Math.round(W * DPR * sk); sceneCv.height = Math.round(H * DPR * sk);
+  if (GLOK) { fbW = cv.width; fbH = cv.height; freeTargets(); tg = [makeTarget(fbW, fbH), makeTarget(fbW, fbH)]; cur = 0; allocRay(); }
+}
+addEventListener('resize', resize);
+
+/* =====================================================================
+   audio analysis
+   ===================================================================== */
+function analyse(dt) {
+  let rb = 0, rm = 0, rt = 0;
+  if (A.an && A.ctx.state === 'running') {
+    A.an.getByteFrequencyData(fft); A.an.getByteTimeDomainData(td);
+    const avg = (a, b) => { let s = 0; for (let i = a; i < b; i++) s += fft[i]; return s / ((b - a) * 255); };
+    const sk = .3 + P('sens') * 1.4;   // Sensitivity scales the sound's pull on the scene too
+    rb = Math.min(1, avg(1, 7) * 1.7 * sk); rm = Math.min(1, avg(7, 60) * 2.4 * sk); rt = Math.min(1, avg(60, 300) * 5 * sk);
+    for (let i = 0; i < NS; i++) {
+      const bin = Math.min(fft.length - 1, Math.floor(2 * Math.pow(300, i / NS)));
+      spec[i] = Math.max(Math.pow(fft[bin] / 255, 1.4) * 1.25, spec[i] - dt * 1.4);
+    }
+  } else for (let i = 0; i < NS; i++) spec[i] = Math.max(0, spec[i] - dt * 1.4);
+  rb = Math.max(rb, flash * .8);
+  bass = Math.max(rb, bass - dt * 2.2); mid = Math.max(rm, mid - dt * 2); treb = Math.max(rt, treb - dt * 3);
+  for (let k = 0; k < 16; k++) { let s = 0; for (let j = 0; j < 6; j++) s += spec[k * 6 + j]; spec16[k] = Math.min(1, s / 6 * 1.3); }
+  let m = 0; for (let i = 0; i < 2048; i += 8) m = Math.max(m, Math.abs((td[i] || 128) - 128));
+  level = A.an && A.ctx.state === 'running' ? m / 128 : 0;
+}
+
+/* =====================================================================
+   2D scene layer (note rings, chords, spark particles; injected into the feedback)
+   ===================================================================== */
+function drawSceneCopy() {
+  if (chord) {
+    ctx.beginPath();
+    chord.pts.forEach((p, i) => i ? ctx.lineTo(p.x, p.y) : ctx.moveTo(p.x, p.y));
+    if (chord.pts.length > 2) ctx.closePath();
+    ctx.fillStyle = hsl(chord.hue, 100, 60, .05 * chord.amt); ctx.fill();
+    ctx.lineJoin = 'round';
+    ctx.strokeStyle = hsl(chord.hue, 100, 70, .22 * chord.amt); ctx.lineWidth = 6; ctx.stroke();
+    ctx.strokeStyle = hsl(chord.hue, 100, 85, .65 * chord.amt); ctx.lineWidth = 1.4; ctx.stroke();
+  }
+  for (const r of rings) {
+    ctx.lineWidth = 1.5 + r.v * (r.big ? 10 : 6) * r.life;
+    ctx.strokeStyle = hsl(r.hue, 100, 62, r.life * (r.big ? .55 : .75));
+    ctx.beginPath(); ctx.arc(r.x, r.y, r.r, 0, Math.PI * 2); ctx.stroke();
+  }
+  const now = performance.now();
+  for (const [n, h] of held) {
+    const p = notePos(n), hue = noteHue(n), f = h.fade;
+    const pulse = 1 + Math.sin((now - h.born) / 110) * 0.08 + pressure * 0.4;
+    const R = (10 + h.vel * 26) * pulse * (0.4 + 0.6 * f);
+    ctx.strokeStyle = hsl(hue, 100, 60, 0.25 * f * (0.4 + h.vel)); ctx.lineWidth = 1 + h.vel * 3;
+    ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(p.x, p.y); ctx.stroke();
+    for (let i = 3; i >= 1; i--) {
+      ctx.fillStyle = hsl(hue, 100, 55 + (3 - i) * 8, 0.055 * f * (4 - i) * (.5 + h.vel));
+      ctx.beginPath(); ctx.arc(p.x, p.y, R * i * .9, 0, Math.PI * 2); ctx.fill();
+    }
+    ctx.fillStyle = `rgba(255,255,255,${.3 * f})`;
+    ctx.beginPath(); ctx.arc(p.x, p.y, R * .28, 0, Math.PI * 2); ctx.fill();
+  }
+  ctx.lineCap = 'round';
+  for (const q of particles) {
+    const sp = Math.abs(q.vx) + Math.abs(q.vy);
+    if (sp > 90) {
+      ctx.strokeStyle = hsl(q.hue, 100, 70, q.life * .8); ctx.lineWidth = q.size * .8;
+      ctx.beginPath(); ctx.moveTo(q.x, q.y); ctx.lineTo(q.x - q.vx * .045, q.y - q.vy * .045); ctx.stroke();
+    } else { ctx.fillStyle = hsl(q.hue, 100, 80, q.life * .85); ctx.fillRect(q.x - q.size / 2, q.y - q.size / 2, q.size, q.size); }
+  }
+}
+function renderScene() {
+  const sc = sceneCv.width / W;
+  ctx.setTransform(sc, 0, 0, sc, 0, 0);
+  ctx.globalCompositeOperation = 'source-over'; ctx.fillStyle = '#000'; ctx.fillRect(0, 0, W, H);
+  ctx.save();
+  ctx.translate(W / 2 + (Math.random() - .5) * flash * 8, H / 2 + (Math.random() - .5) * flash * 8);
+  ctx.globalCompositeOperation = 'lighter';
+  const N = 1 + Math.round(P('sym') * 11), mirror = N % 2 === 0;
+  ctx.rotate(rot + bend * 0.6);
+  for (let k = 0; k < N; k++) {
+    ctx.save(); ctx.rotate(k * Math.PI * 2 / N);
+    if (mirror && k % 2) ctx.scale(1, -1);
+    drawSceneCopy();
+    ctx.restore();
+  }
+  ctx.restore();
+}
+
+/* =====================================================================
+   GL passes
+   ===================================================================== */
+function setCommon(P_) {
+  const f = (n, v) => gl.uniform1f(P_.u(n), v);
+  gl.uniform2f(P_.u('uRes'), rayW, rayH);
+  f('uTime', T); f('uTravel', travel); f('uBass', bass); f('uMid', mid); f('uTreb', treb);
+  f('uEnergy', Math.min(2.5, bass * .6 + [...held.values()].reduce((s, h) => s + h.vel * h.fade, 0)));
+  f('uFlash', flash); f('uBend', bend); f('uSpin', spin); f('uHue', P('hue')); f('uWarp', P('warp'));
+  gl.uniform1i(P_.u('uSym'), 1 + Math.round(P('sym') * 11));
+  let nn = 0;
+  for (const [n, h] of held) {
+    if (nn >= 6 || h.fade < .1 || h.ch === 9) continue;
+    const a = (n % 12) / 12 * Math.PI * 2 + T * .2;
+    noteBuf[nn * 4] = Math.cos(a); noteBuf[nn * 4 + 1] = Math.sin(a); noteBuf[nn * 4 + 2] = h.vel * h.fade; noteBuf[nn * 4 + 3] = (n % 12) / 12; nn++;
+  }
+  gl.uniform1i(P_.u('uNN'), nn); gl.uniform4fv(P_.u('uNotes'), noteBuf);
+}
+function rayPass() {
+  if (!rayT) return;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, rayT.fbo); gl.viewport(0, 0, rayW, rayH);
+  const prog = look === 0 ? descP : rayP;
+  gl.useProgram(prog.p); setCommon(prog);
+  if (look === 0) {
+    gl.uniform4f(descP.u('uCam'), flight.x, flight.alt + fHeight / 9, flight.h, flight.z);
+    gl.uniform1f(descP.u('uDive'), diveAmt); gl.uniform1f(descP.u('uAngry'), P('angry')); gl.uniform1f(descP.u('uRough'), P('rough'));
+    gl.uniform1f(descP.u('uBolt'), RM.matches ? 0 : 1);
+    gl.uniform1f(descP.u('uChase'), chaseT);
+    gl.uniform3f(descP.u('uShipPos'), ship.x, ship.y, 5);
+    gl.uniform4f(descP.u('uShipFx'), ship.roll, ship.pitch, ship.flare, ship.hue);
+    gl.uniform4fv(descP.u('uRibbon'), ribbonBuf);
+    gl.uniform1f(descP.u('uBeat'), beatPulse); gl.uniform1f(descP.u('uOnset'), onsetEnv);
+    for (let i = 0; i < 24; i++) {
+      const q = trail[i];
+      trailBuf[i * 4] = q ? q.x : 0; trailBuf[i * 4 + 1] = q ? q.y : 0; trailBuf[i * 4 + 2] = q ? T - q.t : 99; trailBuf[i * 4 + 3] = q ? q.hue : 0;
+    }
+    gl.uniform4fv(descP.u('uTrail'), trailBuf);
+  } else gl.uniform1i(rayP.u('uMode'), look - 1);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  if (look === 0 && partMode > 0 && P('pamt') > .02 && diveAmt < .8) {      // world-locked particles around you
+    const cnt = Math.floor(60000 * P('pamt') * Math.min(1, rayScale / .7));
+    gl.useProgram(partP.p); gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
+    const f = (k, v) => gl.uniform1f(partP.u(k), v);
+    f('uTime', T); f('uAsp', rayW / rayH); f('uSize', 1.4 * rayH / 700); f('uBass', bass); f('uMid', mid); f('uTreb', treb);
+    f('uOnset', onsetEnv); f('uBeat', beatPulse); f('uDive', diveAmt); f('uHead', flight.h);
+    gl.uniform2f(partP.u('uPos'), flight.x, flight.z); gl.uniform1i(partP.u('uMode'), partMode);
+    gl.drawArrays(gl.POINTS, 0, cnt); gl.disable(gl.BLEND);
+  }
+  const n = Math.floor(650000 * P('dust') * Math.min(1, rayScale / .7));
+  if (n > 1000 && look !== 0) {
+    gl.useProgram(dustP.p); gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE);
+    const f = (k, v) => gl.uniform1f(dustP.u(k), v);
+    f('uTime', T); f('uTravel', travel); f('uBass', bass); f('uFlash', flash); f('uAsp', rayW / rayH); f('uSize', 1.4 * rayH / 700);
+    gl.drawArrays(gl.POINTS, 0, n); gl.disable(gl.BLEND);
+  }
+}
+function glPass(energy) {
+  const trail = P('trail'), decay = 0.80 + 0.185 * trail;
+  rayPass();
+  gl.activeTexture(gl.TEXTURE1); gl.bindTexture(gl.TEXTURE_2D, sceneTex);
+  if (look !== 0) {            // the flat note graphics belong to the other looks; in the flight your notes live in the world
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, sceneCv);
+  }
+  const useCam = camOn && camVideo && camVideo.readyState >= 2;
+  if (useCam) {
+    gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, camTex);
+    gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL, true);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, camVideo);
+  }
+  let np = 0; const th = rot + bend * 0.6, cs = Math.cos(th), sn = Math.sin(th), hh = H / 2;
+  for (const [n, h] of held) {
+    if (look === 0 || np >= 8 || h.fade < .1) continue;
+    const p = notePos(n), x = p.x * cs - p.y * sn, y = p.x * sn + p.y * cs;
+    ptsBuf[np * 3] = x / hh; ptsBuf[np * 3 + 1] = -y / hh; ptsBuf[np * 3 + 2] = h.vel * h.fade * (0.5 + P('warp')); np++;
+  }
+  const calm = look === 0 ? 1 - diveAmt : 0;
+  const dst = tg[1 - cur];
+  gl.bindFramebuffer(gl.FRAMEBUFFER, dst.fbo); gl.viewport(0, 0, fbW, fbH);
+  gl.useProgram(warpP.p);
+  gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D, tg[cur].tex);
+  gl.uniform1i(warpP.u('uPrev'), 0); gl.uniform1i(warpP.u('uScene'), 1);
+  gl.uniform2f(warpP.u('uRes'), fbW, fbH);
+  const f1 = (n, v) => gl.uniform1f(warpP.u(n), v);
+  f1('uTime', T); f1('uBass', bass); f1('uMid', mid); f1('uTreb', treb); f1('uFlash', flash);
+  f1('uBend', bend); f1('uSpin', spin); f1('uWarp', P('warp')); f1('uDecay', decay); f1('uCalm', calm);
+  f1('uGain', look === 0 ? 0 : 0.02 + 0.30 * (1 - decay));
+  gl.uniform1i(warpP.u('uNPts'), np); gl.uniform3fv(warpP.u('uPts'), ptsBuf);
+  gl.activeTexture(gl.TEXTURE2); gl.bindTexture(gl.TEXTURE_2D, rayT.tex);
+  gl.uniform1i(warpP.u('uRay'), 2);
+  gl.uniform1i(warpP.u('uCam'), 3); gl.uniform1i(warpP.u('uUseCam'), useCam ? 1 : 0);
+  f1('uFb', 0.45 + 0.45 * trail);
+  gl.activeTexture(gl.TEXTURE3); gl.bindTexture(gl.TEXTURE_2D, camTex);
+  gl.activeTexture(gl.TEXTURE0);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+  cur = 1 - cur;
+  gl.bindTexture(gl.TEXTURE_2D, tg[cur].tex); gl.generateMipmap(gl.TEXTURE_2D);
+
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null); gl.viewport(0, 0, cv.width, cv.height);
+  gl.useProgram(postP.p);
+  gl.uniform1i(postP.u('uTex'), 0); gl.uniform2f(postP.u('uRes'), cv.width, cv.height);
+  const g1 = (n, v) => gl.uniform1f(postP.u(n), v);
+  g1('uTime', T); g1('uFlash', RM.matches ? flash * .3 : flash); g1('uEnergy', energy); g1('uGlow', 0.35 + P('glow') * 1.3); g1('uBass', bass); g1('uFlight', look === 0 ? 1 : 0);
+  gl.drawArrays(gl.TRIANGLES, 0, 3);
+}
+
+function drawUI() {
+  uix.setTransform(DPR, 0, 0, DPR, 0, 0); uix.clearRect(0, 0, W, H);
+  uix.globalCompositeOperation = 'lighter';
+  const kw = W / 88, kb = H - 8;
+  for (let i = 0; i < 88; i++) {
+    const n = 21 + i, h = held.get(n);
+    if (h) {
+      const hh = 8 + h.vel * 40 * h.fade;
+      uix.fillStyle = hsl(noteHue(n), 100, 60, .35 * h.fade); uix.fillRect(i * kw - 2, kb - hh - 4, kw + 2, hh + 8);
+      uix.fillStyle = hsl(noteHue(n), 100, 70, .9 * h.fade); uix.fillRect(i * kw, kb - hh, kw - 1, hh);
+    } else { uix.fillStyle = 'rgba(255,255,255,.08)'; uix.fillRect(i * kw, kb - 3, kw - 1, 3); }
+  }
+  uix.globalCompositeOperation = 'source-over';
+}
+
+/* =====================================================================
+   main loop
+   ===================================================================== */
+cv.addEventListener('webglcontextlost', e => { e.preventDefault(); GLOK = false; setStatus('The graphics card reset. Recovering…', true); });
+cv.addEventListener('webglcontextrestored', () => location.reload());
+let last = performance.now(), lastAudioHint = 0;
+function frame(t) {
+  const dt = Math.min(0.05, (t - last) / 1000); last = t; T += dt;
+  qAcc += dt; qN++;
+  if (qN >= 90) {
+    const avg = qAcc / qN; qAcc = 0; qN = 0;
+    if (avg > .026 && rayScale > .4) { rayScale = Math.max(.4, rayScale * .82); allocRay(); }
+  }
+  for (const [n, h] of held) {
+    if (!h.down && !sustain) {
+      if (!h.released) { h.released = true; if (h.ch !== 9 && voices[n]) synthOff(n); }
+      h.fade -= dt * 1.6; if (h.fade <= 0) held.delete(n);
+    }
+  }
+  for (let i = rings.length - 1; i >= 0; i--) {
+    const r = rings[i]; r.r += r.grow * dt; r.grow *= (1 - dt * 1.2); r.life -= dt * (r.big ? .9 : 1.1);
+    if (r.life <= 0) rings.splice(i, 1);
+  }
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const q = particles[i]; q.x += q.vx * dt; q.y += q.vy * dt;
+    q.vx *= 1 - dt * 1.6; q.vy *= 1 - dt * 1.6; q.life -= dt * q.dec;
+    if (q.life <= 0) particles.splice(i, 1);
+  }
+  flash *= Math.pow(0.04, dt); spin *= Math.pow(0.3, dt); pressure *= Math.pow(0.5, dt);
+  analyse(dt);
+  let energy = 0; for (const h of held.values()) energy += h.vel * h.fade;
+  energy = Math.min(2.5, energy + bass * .6);
+  rot += dt * (0.05 + spin + energy * 0.04);
+  travel += dt * (0.6 + energy * 1.6 + bass * 2.2 + flash * 3 + pressure * 2) * (1 + diveAmt * 2.5);
+
+  motionStep(dt);
+  if (altKey && look === 0) { const a = PARAMS.find(p => p.id === 'alt'); setParam(a, a.v + altKey * dt * .3); }
+  if (T - lastMove > 2.5) { steerMouse = 0; document.body.classList.add('idle'); }   // a parked mouse stops turning, and the cursor gets out of the picture
+  { const au = (P('alt') - .5) * 2; diveAmt = Math.max(0, -au); fHeight = Math.max(0, au) * 12; }   // down = fall into the tunnel, up = climb
+  { const spd = (3 + energy * 5 + bass * 4 + pressure * 6) * (1 + diveAmt * 1.2),     /* breath or aftertouch opens the throttle */ target = steerKey || steerMouse || steerMotion;
+    flight.steer += (target - flight.steer) * Math.min(1, dt * 3);
+    flight.h += (flight.steer * .7 + Math.sin(T * .07) * .12) * dt;              // a gentle sway when you leave it alone
+    flight.x += Math.sin(flight.h) * spd * dt; flight.z += Math.cos(flight.h) * spd * dt;
+    flight.alt += (noteAlt - flight.alt) * Math.min(1, dt * 1.5); }                // high notes climb, low notes dive
+  chaseT += (chase - chaseT) * Math.min(1, dt * 4);
+  { // the ship leads the camera: it swings into turns and rises on high notes before the camera catches up
+    ship.side *= Math.exp(-dt * .9);
+    const tx = flight.steer * 1.2 + ship.side * .9, ty = -.55 + Math.max(-.45, Math.min(1.1, (noteAlt - flight.alt) * 3));
+    ship.x += (tx - ship.x) * Math.min(1, dt * 4); ship.y += (ty - ship.y) * Math.min(1, dt * 5);
+    ship.roll += (flight.steer * .7 + (tx - ship.x) * .7 + bend * .3 - ship.roll) * Math.min(1, dt * 4);
+    ship.pitch += (Math.max(-.5, Math.min(.5, (noteAlt - flight.alt) * 1.2)) - ship.pitch) * Math.min(1, dt * 4);
+    ship.flare = Math.max(ship.flare * Math.exp(-dt * 2.5), pressure * .6);
+    const yw = flight.alt * 9 + fHeight;
+    ship.t += dt;
+    if (ship.t > .12) {          // the contrail remembers where the ship went, carrying the shape and colour of what you played
+      ship.t = 0;
+      contrail.unshift({ sx: ship.x, sy: ship.y, yw, h: flight.h, hue: ship.hue, f: .3 + .7 * Math.min(1, ship.flare + .1), t: T });
+      if (contrail.length > 15) contrail.pop();
+    }
+    ribbonBuf[0] = ship.x / 4.3 * 1.4; ribbonBuf[1] = ship.y / 4.3 * 1.4 - .1; ribbonBuf[2] = 1; ribbonBuf[3] = ship.hue;
+    for (let i = 0; i < 15; i++) {
+      const q = contrail[i], o = (i + 1) * 4; let z = 0;
+      if (q) {                   // it recedes toward you slowly, so the whole phrase stays on screen
+        const vz = 4.3 - (T - q.t) * 1.9;
+        if (vz > 1.1) {
+          const vx = q.sx + vz * Math.sin(q.h - flight.h) * .5, vy = q.sy + (q.yw - yw) * .25;
+          ribbonBuf[o] = vx / vz * 1.4; ribbonBuf[o + 1] = vy / vz * 1.4 - .1; z = q.f * (1 - i / 15); ribbonBuf[o + 3] = q.hue;
+        }
+      }
+      ribbonBuf[o + 2] = z;
+    }
+  }
+  beatPhase += dt / beatPeriod;
+  if (beatPhase >= 1) { beatPhase -= 1; if (T - lastOnset < 3) beatPulse = 1; }   // the clock only ticks while you're playing
+  beatPulse *= Math.exp(-dt * 5); onsetEnv *= Math.exp(-dt * 6);
+  chord = null;
+  const act = [...held].filter(([, h]) => h.fade > .15 && h.ch !== 9);
+  if (act.length >= 2) {
+    const pts = act.map(([n]) => { const p = notePos(n); return { x: p.x, y: p.y, a: Math.atan2(p.y, p.x), h: noteHue(n) }; }).sort((a, b) => a.a - b.a);
+    chord = { pts, hue: pts[0].h, amt: Math.min(1, act.length / 3) };
+  }
+
+  if (GLOK) { if (look !== 0) renderScene(); glPass(energy); }
+  drawUI();
+
+  if (t - lastAudioHint > 800) {
+    lastAudioHint = t;
+    const hinting = statusEl.textContent.startsWith('Click or press');
+    if (A.ctx && A.ctx.state === 'suspended' && !statusEl.classList.contains('err')) setStatus('Click or press any key once to wake the sound');
+    else if (hinting) setStatus();
+  }
+  requestAnimationFrame(frame);
+}
+resize(); setLook(0);
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>

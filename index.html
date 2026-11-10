@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Music Tools</title>
+<meta name="description" content="Browser tools for playing, practicing and writing music.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Serif:ital,wght@0,500;1,500&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#f6f2ea; --ink:#1c1915; --dim:#6a635a; --rule:#d9d1c3; --card:#fffdf8;
+    --play:#a23b3f; --practice:#1f6f6a; --write:#7a5a12; --focus:#1d5fd0;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg:#131114; --ink:#ece8e1; --dim:#a39d94; --rule:#332e36; --card:#1b181c;
+      --play:#e58a8d; --practice:#6fd0c8; --write:#e8b85a; --focus:#7db6ff; }
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.55 "IBM Plex Sans", system-ui, sans-serif; }
+  main { max-width:920px; margin:0 auto; padding:clamp(40px, 9vw, 96px) 20px 64px; }
+  header p { color:var(--dim); max-width:46ch; margin:12px 0 0; }
+  h1 { font:500 clamp(40px, 8vw, 68px)/1 "IBM Plex Serif", Georgia, serif; letter-spacing:-.02em; margin:0; }
+  h1 em { font-style:italic; }
+  section { margin-top:56px; display:grid; grid-template-columns:120px 1fr; gap:8px 24px; border-top:1px solid var(--rule); padding-top:20px; }
+  h2 { font:500 12px/1.4 "IBM Plex Mono", monospace; letter-spacing:.14em; text-transform:uppercase; margin:6px 0 0; color:var(--tone); }
+  ul { list-style:none; margin:0; padding:0; display:grid; gap:12px; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); }
+  a.tool { display:block; height:100%; padding:18px 18px 16px; background:var(--card); border:1px solid var(--rule); border-left:3px solid var(--tone);
+    border-radius:6px; color:inherit; text-decoration:none; transition:transform .12s, border-color .12s; }
+  a.tool:hover { transform:translateY(-2px); border-color:var(--tone); }
+  a.tool:focus-visible, footer a:focus-visible { outline:2px solid var(--focus); outline-offset:3px; }
+  .name { font:500 22px/1.2 "IBM Plex Serif", Georgia, serif; display:flex; align-items:baseline; gap:8px; flex-wrap:wrap; }
+  .tag { font:500 10px/1 "IBM Plex Mono", monospace; letter-spacing:.1em; text-transform:uppercase; padding:3px 6px; border:1px solid currentColor; border-radius:3px; color:var(--tone); }
+  .what { color:var(--dim); font-size:14px; margin:6px 0 0; }
+  .where { font:400 12px/1.4 "IBM Plex Mono", monospace; color:var(--dim); margin:12px 0 0; }
+  .play { --tone:var(--play); } .practice { --tone:var(--practice); } .write { --tone:var(--write); }
+  footer { margin-top:64px; padding-top:20px; border-top:1px solid var(--rule); color:var(--dim); font-size:14px; }
+  footer a { color:var(--ink); }
+  @media (max-width:600px) { section { grid-template-columns:1fr; } }
+  @media (prefers-reduced-motion: reduce) { a.tool { transition:none; } a.tool:hover { transform:none; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Music <em>Tools</em></h1>
+    <p>Small browser instruments for playing, practicing and writing music. Nothing to install.</p>
+  </header>
+
+  <section class="play" aria-labelledby="h-play">
+    <h2 id="h-play">Play</h2>
+    <ul>
+      <li><a class="tool" href="./grand/">
+        <div class="name">Grand</div>
+        <p class="what">A concert piano in your browser, with a metronome.</p>
+        <p class="where">/grand/</p>
+      </a></li>
+      <li><a class="tool" href="./midi-bloom/">
+        <div class="name">MIDI Bloom <span class="tag">Beta</span></div>
+        <p class="what">Fly a world that blooms as you play. Works with a MIDI keyboard, the computer keys, a webcam or a mic.</p>
+        <p class="where">/midi-bloom/</p>
+      </a></li>
+    </ul>
+  </section>
+
+  <section class="practice" aria-labelledby="h-practice">
+    <h2 id="h-practice">Practice</h2>
+    <ul>
+      <li><a class="tool" href="https://jazzinteractive.org/07-practice-tools.html">
+        <div class="name">Chord Loop</div>
+        <p class="what">Loop the changes around the cycle of fourths or chromatically, and play along.</p>
+        <p class="where">jazzinteractive.org ↗</p>
+      </a></li>
+      <li><a class="tool" href="./ear-trainer/">
+        <div class="name">Jazz Ear Trainer</div>
+        <p class="what">Train your ear on chord tones and altered tensions over a ii–V–I.</p>
+        <p class="where">/ear-trainer/</p>
+      </a></li>
+    </ul>
+  </section>
+
+  <section class="write" aria-labelledby="h-write">
+    <h2 id="h-write">Write</h2>
+    <ul>
+      <li><a class="tool" href="./syncopate/">
+        <div class="name">Syncopate</div>
+        <p class="what">An ABC notation lab for jazz: type a tune, see the score, hear it back.</p>
+        <p class="where">/syncopate/</p>
+      </a></li>
+    </ul>
+  </section>
+
+  <footer>
+    Learning the language of jazz? The lessons live at <a href="https://jazzinteractive.org">Jazz Interactive</a>.
+  </footer>
+</main>
+</body>
+</html>
